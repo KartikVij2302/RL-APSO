@@ -9,55 +9,56 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 
 class Drone:
-    def __init__(self, search_space, id):
-        side = np.random.randint(0, 4)
-        if side == 0:
-            self.position = np.array([np.random.uniform(0, search_space[0]), search_space[1]])
-        elif side == 1:
-            self.position = np.array([search_space[0], np.random.uniform(0, search_space[1])])
-        elif side == 2:
-            self.position = np.array([np.random.uniform(0, search_space[0]), 0])
-        else:
-            self.position = np.array([0, np.random.uniform(0, search_space[1])])
-
+    def __init__(self, bounds, id):
+        # Initialize drone at random position within bounds
+        self.position = np.random.uniform(bounds[0], bounds[1], 2)
         self.velocity = np.zeros(2)
         self.acceleration = np.zeros(2)
         self.best_position = self.position.copy()
-        self.best_signal = float('-inf')
+        self.best_score = float('inf')
         self.id = id
 
-    def update_best(self, signal_strength):
-        if signal_strength > self.best_signal:
-            self.best_signal = signal_strength
+    def update_best(self, score):
+        if score < self.best_score:
+            self.best_score = score
             self.best_position = self.position.copy()
 
 class APSO:
-    def __init__(self, n_drones=5, search_space=(100, 100), w1=0.675, w2=-0.285, c1=1.193, c2=1.193, T=1.0, source_power=100, alpha=0.01):
+    def __init__(self, n_drones=30, bounds=(-5.12, 5.12), w1=0.675, w2=-0.285, c1=1.193, c2=1.193, T=1.0):
         self.n_drones = n_drones
-        self.search_space = search_space
+        self.bounds = bounds
         self.w1, self.w2, self.c1, self.c2 = w1, w2, c1, c2
         self.T = T
-        self.source_power = source_power
-        self.alpha = alpha
-        self.source_position = np.array([search_space[0] / 2, search_space[1] / 2])
-        self.drones = [Drone(search_space, i) for i in range(n_drones)]
+        # Source (global minimum) is at (0,0) for Rastrigin
+        self.source_position = np.array([0.0, 0.0])
+        self.drones = [Drone(bounds, i) for i in range(n_drones)]
         self.global_best_position = None
-        self.global_best_signal = float('-inf')
+        self.global_best_score = float('inf')
         self.min_distances = []
         self.prev_min_distance = float('inf')
         self.steps_without_improvement = 0
 
-    def measure_signal(self, position):
-        distance = np.linalg.norm(position - self.source_position)
-        return self.source_power * np.exp(-self.alpha * distance**2)
+    def evaluate_rastrigin(self, position):
+        """
+        Rastrigin function: f(x) = An + sum(x_i^2 - A cos(2pi x_i))
+        where A = 10, x_i in [-5.12, 5.12]
+        Global minimum at x = 0, f(x) = 0
+        """
+        A = 10
+        n = len(position)
+        return A * n + np.sum(position**2 - A * np.cos(2 * np.pi * position))
 
     def update_drone(self, drone):
         r1, r2 = np.random.uniform(0, self.c1), np.random.uniform(0, self.c2)
+        
+        g_best = self.global_best_position if self.global_best_position is not None else drone.best_position
+        
         drone.acceleration = (self.w1 * drone.acceleration +
                             r1 * (drone.best_position - drone.position) +
-                            r2 * (self.global_best_position - drone.position))
+                            r2 * (g_best - drone.position))
         drone.velocity = self.w2 * drone.velocity + drone.acceleration * self.T
-        drone.position = np.clip(drone.position + drone.velocity * self.T, [0, 0], [self.search_space[0], self.search_space[1]])
+        drone.position = drone.position + drone.velocity * self.T
+        drone.position = np.clip(drone.position, self.bounds[0], self.bounds[1])
 
     def get_swarm_metrics(self):
         positions = np.array([drone.position for drone in self.drones])
@@ -69,15 +70,16 @@ class APSO:
 
     def step(self):
         for drone in self.drones:
-            signal = self.measure_signal(drone.position)
-            drone.update_best(signal)
-            if signal > self.global_best_signal:
-                self.global_best_signal = signal
+            score = self.evaluate_rastrigin(drone.position)
+            drone.update_best(score)
+            if score < self.global_best_score:
+                self.global_best_score = score
                 self.global_best_position = drone.position.copy()
 
         for drone in self.drones:
             self.update_drone(drone)
 
+        # Distance to global minimum (0,0)
         min_dist = min(np.linalg.norm(drone.position - self.source_position) for drone in self.drones)
         
         # Track improvement
@@ -88,16 +90,18 @@ class APSO:
             self.steps_without_improvement += 1
             
         self.min_distances.append(min_dist)
-        return min_dist < 0.1
+        
+        # Success if score is very low (close to 0)
+        return self.global_best_score < 1e-6
 
 class APSOEnv(gym.Env):
     def __init__(self):
         super(APSOEnv, self).__init__()
         self.action_space = spaces.Box(low=-0.5, high=2, shape=(4,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-10, high=10, shape=(8,), dtype=np.float32)
         self.apso = None
         self.episode_steps = 0
-        self.max_steps = 200  # Reduced episode length
+        self.max_steps = 200
         self.reset()
 
     def reset(self):
@@ -133,10 +137,11 @@ class APSOEnv(gym.Env):
         
         # Swarm behavior rewards
         swarm_radius, swarm_density = self.apso.get_swarm_metrics()
-        exploration_reward = 0.1 * swarm_radius if current_min_dist > 20 else 0
+        # Adjust thresholds for Rastrigin scale
+        exploration_reward = 0.1 * swarm_radius if current_min_dist > 2 else 0
         
         # Early convergence penalty
-        early_convergence_penalty = -5.0 if swarm_radius < 5 and current_min_dist > 10 else 0
+        early_convergence_penalty = -5.0 if swarm_radius < 0.5 and current_min_dist > 1 else 0
         
         # Stability reward
         stability_reward = 2.0 if self.jury_stability_test(self.apso.w1, self.apso.w2, 
@@ -152,7 +157,7 @@ class APSOEnv(gym.Env):
         )
         
         # Success bonus
-        if done:
+        if done and self.apso.global_best_score < 1e-6:
             reward += 2000
             
         return reward
@@ -167,12 +172,10 @@ class APSOEnv(gym.Env):
                              for d in self.apso.drones)
         
         # End episode if:
-        # 1. Found the source
+        # 1. Found the source (done is already True from apso.step())
         # 2. Max steps reached
-        # 3. Stuck in local minimum (too many steps without improvement and far from source)
-        done = done or \
-               self.episode_steps >= self.max_steps or \
-               (self.apso.steps_without_improvement > 50 and current_min_dist > 20)
+        # 3. Stuck in local minimum
+        done = done or                self.episode_steps >= self.max_steps or                (self.apso.steps_without_improvement > 50 and current_min_dist > 2)
         
         reward = self.calculate_reward(done)
         return self.get_observation(), reward, done, {}
@@ -219,7 +222,8 @@ def train_rl():
         )
     )
     
-    model.learn(total_timesteps=1000000, callback=reward_callback)
+    # Reduced timesteps for demonstration purposes
+    model.learn(total_timesteps=100000, callback=reward_callback)
     
     # Plot rewards
     episodes = np.arange(len(reward_callback.episode_rewards))
@@ -234,15 +238,20 @@ def train_rl():
     
     return model, reward_callback.episode_rewards
 
-def evaluate_rl(model, n_evaluations=5):
+def evaluate_rl(model, n_evaluations=50):
+    seeking_times = []
+    iteration_counts = []
     all_distances = []
+    
+    print(f"Starting evaluation with {n_evaluations} runs...")
     
     for eval_num in range(n_evaluations):
         env = APSOEnv()
         obs = env.reset()
+        start_time = time.time()
         distances = []
         
-        for step in range(1000):
+        for step in range(200): # Max steps
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, _ = env.step(action)
             
@@ -251,33 +260,73 @@ def evaluate_rl(model, n_evaluations=5):
             distances.append(min_dist)
             
             if done:
-                print(f"Evaluation {eval_num + 1} completed in {step + 1} steps")
                 break
         
+        elapsed_time = time.time() - start_time
+        seeking_times.append(elapsed_time)
+        iteration_counts.append(step + 1)
         all_distances.append(distances)
+        
+        if (eval_num + 1) % 10 == 0:
+            print(f"Completed {eval_num + 1}/{n_evaluations} runs")
+
+    avg_seeking_time = np.mean(seeking_times)
+    avg_iterations = np.mean(iteration_counts)
     
+    print(f"\nResults over {n_evaluations} runs:")
+    print(f"Average Source Seeking Time (mu(Ts)): {avg_seeking_time:.4f} s")
+    print(f"Average Number of Iterations (mu(I)): {avg_iterations:.2f}")
+    
+    # Plotting Metrics
+    plt.figure(figsize=(12, 5))
+    
+    # Plot 1: Source Seeking Time Distribution
+    plt.subplot(1, 2, 1)
+    plt.hist(seeking_times, bins=10, color='skyblue', edgecolor='black', alpha=0.7)
+    plt.axvline(avg_seeking_time, color='red', linestyle='dashed', linewidth=2, label=f'Avg: {avg_seeking_time:.4f}s')
+    plt.xlabel('Source Seeking Time (s)')
+    plt.ylabel('Frequency')
+    plt.title(f'Distribution of Source Seeking Time\n(N={n_evaluations})')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Plot 2: Number of Iterations Distribution
+    plt.subplot(1, 2, 2)
+    plt.hist(iteration_counts, bins=10, color='lightgreen', edgecolor='black', alpha=0.7)
+    plt.axvline(avg_iterations, color='red', linestyle='dashed', linewidth=2, label=f'Avg: {avg_iterations:.2f}')
+    plt.xlabel('Number of Iterations')
+    plt.ylabel('Frequency')
+    plt.title(f'Distribution of Iterations\n(N={n_evaluations})')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('rl_apso_metrics.png')
+    plt.close()
+    
+    # Plot Performance (Convergence)
     plt.figure(figsize=(12, 8))
-    
     for i, distances in enumerate(all_distances):
-        plt.plot(distances, alpha=0.3, label=f'Run {i+1}')
+        plt.plot(distances, alpha=0.3)
     
-    mean_distances = np.mean([d[:min(map(len, all_distances))] for d in all_distances], axis=0)
+    # Pad distances to calculate mean
+    max_len = max(len(d) for d in all_distances)
+    padded_distances = []
+    for d in all_distances:
+        padded = np.pad(d, (0, max_len - len(d)), 'edge')
+        padded_distances.append(padded)
+        
+    mean_distances = np.mean(padded_distances, axis=0)
     plt.plot(mean_distances, 'r-', linewidth=2, label='Mean Performance')
     
     plt.xlabel("Steps")
     plt.ylabel("Min Distance to Source")
-    plt.title("RL Optimized APSO Performance")
+    plt.title("RL Optimized APSO Performance on Rastrigin")
     plt.grid(True)
     plt.legend()
     plt.yscale('log')
     plt.savefig('performance_plot.png')
     plt.close()
-    
-    final_distances = [d[-1] for d in all_distances]
-    print(f"\nFinal Statistics:")
-    print(f"Mean final distance: {np.mean(final_distances):.2f}")
-    print(f"Best final distance: {np.min(final_distances):.2f}")
-    print(f"Worst final distance: {np.max(final_distances):.2f}")
 
 if __name__ == "__main__":
     model, episode_rewards = train_rl()
