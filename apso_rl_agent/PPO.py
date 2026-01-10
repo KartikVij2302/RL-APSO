@@ -124,3 +124,10 @@ class PPOAgent:
         
         self.policy_old.load_state_dict(self.policy.state_dict())
         self.buffer = []
+
+    def save(self, filename):
+        torch.save(self.policy.state_dict(), filename)
+
+    def load(self, filename):
+        self.policy.load_state_dict(torch.load(filename))
+        self.policy_old.load_state_dict(self.policy.state_dict())
