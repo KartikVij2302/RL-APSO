@@ -4,24 +4,14 @@ import sys
 import os
 
 # Ensure we can import modules from the same directory
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
 
 from apso import APSO_SourceSeeker, validate_apso_params
 from PPO import PPOAgent
 
-import numpy as np
-import os
-import sys
-
-# Ensure imports work
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-from apso import APSO_SourceSeeker, validate_apso_params
-from PPO import PPOAgent
 
 class RLAPSOEnv:
     def __init__(self, source_pos, bounds, num_particles=10, max_iter=300):
@@ -34,6 +24,14 @@ class RLAPSOEnv:
         self.current_iter = 0
         self.prev_signal = 0.0
         self.prev_gbest_dist = 0.0
+
+        # Logging buffers for reward components across all training steps
+        # (aligned with time-to-source and iteration objectives)
+        self.step_time_cost_terms = []     # negative cost proportional to travel time per step
+        self.iteration_penalty_terms = []  # negative cost per iteration
+        self.proximity_bonus_terms = []    # positive reward for being close to source
+        self.success_bonus_terms = []
+        self.timeout_penalty_terms = []
 
     def reset(self):
         # Initialize APSO with standard stable parameters
@@ -50,6 +48,19 @@ class RLAPSOEnv:
         self.prev_gbest_dist = np.linalg.norm(self.apso.gbest_x - self.source_pos)
         
         return self._get_state()
+
+    def get_reward_component_means(self):
+        """Return mean value of each reward component over all steps seen so far."""
+        def _mean(arr):
+            return float(np.mean(arr)) if arr else 0.0
+
+        return {
+            "step_time_cost": _mean(self.step_time_cost_terms),
+            "iteration_penalty": _mean(self.iteration_penalty_terms),
+            "proximity_bonus": _mean(self.proximity_bonus_terms),
+            "success_bonus": _mean(self.success_bonus_terms),
+            "timeout_penalty": _mean(self.timeout_penalty_terms),
+        }
 
     def _get_state(self):
         # 8-Dim State: [Diversity, SigChange, TimeLeft, AvgVel, w1, w2, c1, c2]
@@ -92,15 +103,25 @@ class RLAPSOEnv:
         return w1, w2, c1, c2
 
     def step(self, action):
-        # --- 1. APPLY PARAMS IMMEDIATELY (Causal Control) ---
+        # --- 1. APPLY PARAMS WITH STABILITY CHECK ---
         w1, w2, c1, c2 = self._map_action_to_params(action)
-        
-        # Force validity via clipping instead of rejecting (keeps physics running)
-        self.apso.w1 = np.clip(w1, -0.9, 1.5)
-        self.apso.w2 = np.clip(w2, -0.9, 0.9)
-        self.apso.c1 = max(0.1, c1)
-        self.apso.c2 = max(0.1, c2)
-        
+
+        # Validate APSO stability for the proposed parameters.
+        # If invalid, keep previous APSO parameters but apply a penalty.
+        valid_params = True
+        invalid_param_penalty = 0.0
+        try:
+            validate_apso_params(w1, w2, c1, c2, self.apso.T)
+            # Only assign if parameters satisfy stability criteria
+            self.apso.w1 = float(w1)
+            self.apso.w2 = float(w2)
+            self.apso.c1 = float(c1)
+            self.apso.c2 = float(c2)
+        except Exception:
+            # Mark action as invalid and add a fixed penalty; APSO continues
+            # with its previous stable parameters.
+            valid_params = False
+            invalid_param_penalty = -50.0
         # --- 2. RUN PHYSICS ---
         prev_pos_matrix = np.array([p.x.copy() for p in self.apso.particles])
         try:
@@ -110,43 +131,65 @@ class RLAPSOEnv:
             min_dist = 1000.0
 
         # --- 3. CALCULATE REWARD ---
-        reward = 0.0
-        
-        # A. Signal Improvement (Scaled)
-        current_signal = getattr(self.apso, 'gbest_signal', 0.0)
-        improvement = current_signal - self.prev_signal
-        reward += improvement * 50.0
-        
-        # B. Distance Heuristic (Guide to source)
-        curr_gbest_dist = np.linalg.norm(self.apso.gbest_x - self.source_pos)
-        dist_improvement = self.prev_gbest_dist - curr_gbest_dist
-        reward += dist_improvement * 1.0 # +1 point per meter closer
-        
-        # C. Fuel Cost (Efficiency)
-        # Sum distance moved by all particles
+        # Reward is designed to directly encode the two objectives:
+        # (1) minimise physical source seeking time, approximated via
+        #     per-step travel distance at constant UAV speed;
+        # (2) minimise the number of iterations until detection.
+
+        # Sum distance moved by all particles this step
         curr_pos_matrix = np.array([p.x for p in self.apso.particles])
         step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
-        reward -= 0.5 * step_dist # Small penalty per meter moved
-        
-        # D. Time Penalty (CRITICAL: Forces speed)
-        reward -= 1 # Penalty per time step
-        
-        # E. Success Bonus
+        # Convert to an average per-UAV distance and then to time using
+        # the constant waypoint speed v = 10 m/s.
+        UAV_SPEED = 10.0
+        mean_step_dist = step_dist / self.num_particles
+        step_time = mean_step_dist / UAV_SPEED  # seconds per waypoint move (average UAV)
+
+        # A. Time cost term (log-shaped): larger per-step times get more penalty,
+        #    but the increase is sublinear (diminishing returns).
+        alpha_time = 15.0
+        time_cost_term = -alpha_time * np.log1p(step_time)   # log(1 + step_time)
+
+        # B. Iteration penalty (exp-shaped): later iterations incur higher cost
+        #    than earlier ones.
+        beta_iter = 1.25
+        frac = self.current_iter / self.max_iter             # in [0,1]
+        iteration_term = -beta_iter * np.exp(frac)           # in [-e, -1]
+
+        # C. Proximity bonus (exp-shaped): reward increases as the swarm's
+        #    closest UAV approaches the source (smaller min_dist).
+        #    Use the min_dist returned from APSO step.
+        gamma_close = 1.0
+        proximity_term = gamma_close * np.exp(-0.1 * min_dist)
+
+        # D. Success Bonus / Timeout Penalty (only at terminal steps)
+        success_term = 0.0
+        timeout_term = 0.0
+
+        reward = time_cost_term + iteration_term + proximity_term + invalid_param_penalty
+
         done = False
         if found:
-            reward += 100.0
+            success_term = 300.0
+            reward += success_term
             done = True
         
         # Update trackers
-        self.prev_signal = current_signal
-        self.prev_gbest_dist = curr_gbest_dist
         self.current_iter += 1
         
         if self.current_iter >= self.max_iter:
             done = True
-            reward -= 20.0 # Timeout penalty
-            
-        return self._get_state(), float(reward), done, True
+            timeout_term = -20.0  # Timeout penalty
+            reward += timeout_term
+
+        # Log individual reward components for analysis
+        self.step_time_cost_terms.append(time_cost_term)
+        self.iteration_penalty_terms.append(iteration_term)
+        self.proximity_bonus_terms.append(proximity_term)
+        self.success_bonus_terms.append(success_term)
+        self.timeout_penalty_terms.append(timeout_term)
+
+        return self._get_state(), float(reward), done, valid_params
 
 def run_rl_apso_training():
     # Configuration
@@ -162,10 +205,10 @@ def run_rl_apso_training():
 
     state_dim = 8   # changed to include current APSO params
     action_dim = 4
-    lr = 0.0003
+    lr = 3e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
-    num_episodes = 3000
+    num_episodes = 4000
     rewards_history = []
 
     print(f"Starting RL-APSO Training for {num_episodes} episodes...")
@@ -198,6 +241,11 @@ def run_rl_apso_training():
 
     agent.save(os.path.join(current_dir, "ppo_apso.pth"))
     print("Model saved to ppo_apso.pth")
+
+    # Save mean reward component statistics for offline analysis
+    component_means = env.get_reward_component_means()
+    np.savez(os.path.join(current_dir, "reward_component_means.npz"), **component_means)
+    print("Saved reward component means to reward_component_means.npz")
 
     # Plotting
     try:

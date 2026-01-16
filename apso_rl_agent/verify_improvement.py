@@ -129,8 +129,8 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
             w1, w2, c1, c2 = map_action_to_params(action)
 
             # clamp/validate to safe ranges
-            c1 = max(0.01, c1)
-            c2 = max(0.01, c2)
+            # c1 = max(0.01, c1)
+            # c2 = max(0.01, c2)
 
             try:
                 validate_apso_params(w1, w2, c1, c2, getattr(apso, "T", 1.0))
@@ -387,5 +387,27 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig("times_histograms.png")
     print("[Info] Saved times histograms to times_histograms.png")
+
+    # G. Reward component analysis (from training)
+    # Loads mean reward terms that were logged during RL-APSO training
+    reward_stats_path = "apso_rl_agent/reward_component_means.npz"
+    try:
+        stats = np.load(reward_stats_path)
+        time_cost_mean = float(stats["step_time_cost"])
+        iter_penalty_mean = float(stats["iteration_penalty"])
+        proximity_mean = float(stats["proximity_bonus"])
+        success_mean = float(stats["success_bonus"])
+        timeout_mean = float(stats["timeout_penalty"])
+
+        print("\nReward component means from training (per step):")
+        print(f"  Step time cost term (negative = time penalty): {time_cost_mean:.4f}")
+        print(f"  Iteration penalty term: {iter_penalty_mean:.4f}")
+        print(f"  Proximity bonus term: {proximity_mean:.4f}")
+        print(f"  Success bonus term: {success_mean:.4f}")
+        print(f"  Timeout penalty term: {timeout_mean:.4f}")
+    except FileNotFoundError:
+        print(f"[Info] Reward component means file not found at {reward_stats_path}. Run rl_enhanced_apso.py training first to generate it.")
+    except Exception as e:
+        print(f"[Warning] Failed to load reward component means from {reward_stats_path}: {e}")
 
     plt.show()
