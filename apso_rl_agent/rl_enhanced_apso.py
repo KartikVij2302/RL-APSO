@@ -25,6 +25,13 @@ class RLAPSOEnv:
         self.prev_signal = 0.0
         self.prev_gbest_dist = 0.0
 
+        # Running statistics for reward normalization
+        self.reward_rmean = 0.0
+        self.reward_rvar = 1.0
+        self.reward_count = 1e-4
+        self.RN_BETA = 0.999
+        self.REWARD_CLIP = 200.0
+
         # Logging buffers for reward components across all training steps
         # (aligned with time-to-source and iteration objectives)
         self.step_time_cost_terms = []     # negative cost proportional to travel time per step
@@ -94,13 +101,22 @@ class RLAPSOEnv:
         return state
 
     def _map_action_to_params(self, action):
+    # action in [-1,1]^4 interpreted as fractional deltas in [-0.2, 0.2]
+        delta_frac = 0.2
         a = np.clip(action, -1.0, 1.0)
-        # Dynamic ranges allowing for negative inertia (braking) and high social force
-        w1 = -0.5 + (a[0] + 1.0) * (1.5 - (-0.5)) / 2.0  # [-0.5, 1.5]
-        w2 = -1.0 + (a[1] + 1.0) * (1.0 - (-1.0)) / 2.0  # [-1.0, 1.0]
-        c1 = 0.01 + (a[2] + 1.0) * (4.0 - 0.01) / 2.0    # [0.01, 4.0]
-        c2 = 0.01 + (a[3] + 1.0) * (4.0 - 0.01) / 2.0    # [0.01, 4.0]
+        # compute current params
+        w1_cur = getattr(self.apso, 'w1', 0.675)
+        w2_cur = getattr(self.apso, 'w2', -0.285)
+        c1_cur = getattr(self.apso, 'c1', 1.193)
+        c2_cur = getattr(self.apso, 'c2', 1.193)
+
+        w1 = w1_cur * (1.0 + delta_frac * a[0])
+        w2 = w2_cur * (1.0 + delta_frac * a[1])
+        c1 = c1_cur * (1.0 + delta_frac * a[2])
+        c2 = c2_cur * (1.0 + delta_frac * a[3])
+
         return w1, w2, c1, c2
+
 
     def step(self, action):
         # --- 1. APPLY PARAMS WITH STABILITY CHECK ---
@@ -152,7 +168,7 @@ class RLAPSOEnv:
 
         # B. Iteration penalty (exp-shaped): later iterations incur higher cost
         #    than earlier ones.
-        beta_iter = 1.25
+        beta_iter = 1.0
         frac = self.current_iter / self.max_iter             # in [0,1]
         iteration_term = -beta_iter * np.exp(frac)           # in [-e, -1]
 
@@ -189,7 +205,17 @@ class RLAPSOEnv:
         self.success_bonus_terms.append(success_term)
         self.timeout_penalty_terms.append(timeout_term)
 
-        return self._get_state(), float(reward), done, valid_params
+        # --- 4. RUNNING REWARD NORMALIZATION + CLIPPING ---
+        # update running mean/var (Welford-ish exponential)
+        old_mean = self.reward_rmean
+        self.reward_rmean = self.RN_BETA * self.reward_rmean + (1 - self.RN_BETA) * reward
+        self.reward_rvar = self.RN_BETA * self.reward_rvar + (1 - self.RN_BETA) * (reward - old_mean) ** 2
+        r_std = np.sqrt(self.reward_rvar) + 1e-6
+
+        # normalize and clip
+        reward_norm = float(np.clip((reward - self.reward_rmean) / r_std, -self.REWARD_CLIP, self.REWARD_CLIP))
+
+        return self._get_state(), reward_norm, done, valid_params
 
 def run_rl_apso_training():
     # Configuration
