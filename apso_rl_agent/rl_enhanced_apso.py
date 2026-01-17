@@ -134,10 +134,10 @@ class RLAPSOEnv:
             self.apso.c1 = float(c1)
             self.apso.c2 = float(c2)
         except Exception:
-            # Mark action as invalid and add a fixed penalty; APSO continues
-            # with its previous stable parameters.
+            # Mark action as invalid and add a modest penalty; APSO continues
+            # with its previous stable parameters so exploration isn't overly discouraged.
             valid_params = False
-            invalid_param_penalty = -50.0
+            invalid_param_penalty = -8.0
         # --- 2. RUN PHYSICS ---
         prev_pos_matrix = np.array([p.x.copy() for p in self.apso.particles])
         try:
@@ -168,7 +168,7 @@ class RLAPSOEnv:
 
         # B. Iteration penalty (exp-shaped): later iterations incur higher cost
         #    than earlier ones.
-        beta_iter = 1.0
+        beta_iter = 1.25
         frac = self.current_iter / self.max_iter             # in [0,1]
         iteration_term = -beta_iter * np.exp(frac)           # in [-e, -1]
 
