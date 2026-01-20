@@ -1,0 +1,24 @@
+[Info] Loaded agent via agent.load('apso_rl_agent/ppo_apso.pth').
+--- Running Comparative Analysis (50 runs) ---
+1. Running Fixed Baseline...
+[Info] run_monte_carlo not available or failed; running manual baseline.
+2. Running RL-Guided Swarm...
+
+======================================================================
+METRIC                    | FIXED APSO           | RL-GUIDED           
+----------------------------------------------------------------------
+Avg Time (s)              | 14.45    ±4.59   | 13.74    ±4.55  
+Avg Iterations            | 13.36                | 13.10               
+Avg Swarm Dist (m)        | 3291.14              | 3238.06             
+Success Rate              | 1.00                 | 1.00                
+======================================================================
+[Info] Per-run results saved to rl_vs_fixed_results.csv
+[Info] Saved final comparison plot to final_comparison.png
+[Info] Saved times histograms to times_histograms.png
+
+Reward component means from training (per step):
+  Step time cost term (negative = time penalty): -3.8379
+  Iteration penalty term: -1.7850
+  Proximity bonus term: 0.8187
+  Success bonus term: 5.4197
+  Timeout penalty term: -0.0233
