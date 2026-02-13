@@ -1,5 +1,10 @@
 import numpy as np
-from utils import measure_signal
+
+# Support both `python SPSO/spso.py` and `python -m SPSO.spso`
+try:
+    from .utils import measure_signal
+except Exception:  # pragma: no cover
+    from utils import measure_signal
 
 class Particle:
     def __init__(self, id: int):
@@ -11,8 +16,6 @@ class Particle:
         self.best_signal = float('inf')
 
         self.dist_travelled = 0.0   # <-- ADD THIS
-
-
 
 class SPSO:
     def __init__(self,
@@ -120,13 +123,13 @@ class SPSO:
 
             p.position = np.clip(x_new, 0.0, self.L)
 
-        # Termination check
-            distances = [np.linalg.norm(p.position - self.source) for p in self.particles]
-            min_dist = min(distances)
-            self.min_distances.append(min_dist)
+        # Termination check (after all particles are updated)
+        distances = [np.linalg.norm(p.position - self.source) for p in self.particles]
+        min_dist = float(min(distances)) if distances else float('inf')
+        self.min_distances.append(min_dist)
 
-            found = any(d <= 0.1 for d in distances)
-            return found
+        found = any(d <= 0.1 for d in distances)
+        return found
 
 
     def run(self, max_iterations: int = 300):
@@ -149,11 +152,9 @@ class SPSO:
         time_to_find = swarm_distance / self.speed
 
         return time_to_find, max_iterations, swarm_distance
-
-import numpy as np
-import matplotlib.pyplot as plt
-
 def main():
+    import matplotlib.pyplot as plt
+
     swarm_sizes = list(range(5, 31))
     runs = 10
     max_iter = 500

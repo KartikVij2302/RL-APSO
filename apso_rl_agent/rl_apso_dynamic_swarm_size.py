@@ -183,7 +183,7 @@ class RLAPSOEnv:
         min_dist_norm = min_dist / (map_diag + 1e-6)
 
         # Time cost: use per-UAV average (invariant to num_particles) and reduce weight
-        alpha_time = 50.0   # smaller than 15 to avoid dominance
+        alpha_time = 100.0   # smaller than 15 to avoid dominance
         time_cost_term = -alpha_time * np.log1p(step_time)
 
         # Iteration penalty: keep but moderate

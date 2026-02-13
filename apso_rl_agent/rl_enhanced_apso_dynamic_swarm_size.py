@@ -29,25 +29,23 @@ def run_rl_apso_training_random_particles():
 
     # Max iterations unchanged; base num_particles will be overridden per episode
     base_num_particles = 10
-    max_iter = 500
+    max_iter = 400
 
     env = RLAPSOEnv(source, (lo, hi), base_num_particles, max_iter)
 
     state_dim = 9
     action_dim = 4
-    lr = 3e-4
+    lr = 2e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
-    num_episodes = 10000
+    num_episodes = 12000
     rewards_history = []
 
     print(f"Starting RL-APSO Training with random swarm sizes for {num_episodes} episodes...")
 
     for ep in range(num_episodes):
-        # Sample an integer swarm size in [5, 15] for this episode
-        ep_num_particles = random.randint(5, 15)
+        ep_num_particles = random.randint(5, 30)
 
-        # Source is fixed; only swarm size varies across episodes
         state = env.reset(source_pos=source, num_particles=ep_num_particles)
         ep_reward = 0.0
         valid_actions = 0
@@ -78,13 +76,13 @@ def run_rl_apso_training_random_particles():
             )
 
     # Save model trained with variable swarm sizes
-    agent.save(os.path.join(current_dir, "latest_ppo_apso_random_particles_2.pth"))
-    print("Model saved to latest_ppo_apso_random_particles_2.pth")
+    agent.save(os.path.join(current_dir, "latest_ppo_apso_random_particles_3.pth"))
+    print("Model saved to latest_ppo_apso_random_particles_3.pth")
 
     # Save mean reward component statistics for offline analysis
-    component_means = env.get_reward_component_means()
-    np.savez(os.path.join(current_dir, "reward_component_means.npz"), **component_means)
-    print("Saved reward component means to reward_component_means.npz")
+    # component_means = env.get_reward_component_means()
+    # np.savez(os.path.join(current_dir, "reward_component_means.npz"), **component_means)
+    # print("Saved reward component means to reward_component_means.npz")
 
     # Plot training curve
     try:
@@ -100,7 +98,5 @@ def run_rl_apso_training_random_particles():
 
 if __name__ == "__main__":
 
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-        run_rl_apso_training_random_particles()
+    run_rl_apso_training_random_particles()
         

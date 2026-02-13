@@ -1,7 +1,7 @@
 # ---- Monte Carlo driver and analysis ----
 import os
 from .apso import APSO
-from .spso import SPSO
+from ..SPSO.spso import SPSO
 import numpy as np
 import matplotlib.pyplot as plt
 

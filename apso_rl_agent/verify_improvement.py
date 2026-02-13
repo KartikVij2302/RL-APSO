@@ -200,7 +200,7 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
     return results
 
 # ---------------------------------------------------------
-# 3. Baseline:un manual baseline
+# 3. Baseline:run manual baseline
 # ---------------------------------------------------------
 def run_fixed_baseline(n_runs=50, max_iter=500, num_particles=20, source=None):
     lo = np.array([0.0, 0.0])
@@ -248,20 +248,14 @@ def run_fixed_baseline(n_runs=50, max_iter=500, num_particles=20, source=None):
 # 4. Main Comparison Block
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    # A. Set seeds for reproducibility
     np.random.seed(SEED)
     random.seed(SEED)
     torch.manual_seed(SEED)
 
-    # B. Load Trained Agent
-    state_dim = 9   # must match get_rl_state output
+    state_dim = 9
     action_dim = 4
     agent = PPOAgent(state_dim, action_dim, lr=0.0003)
 
-    # Determine which trained model to load.
-    # Usage examples (from workspace root):
-    #   python apso_rl_agent/verify_improvement.py fixed
-    #   python apso_rl_agent/verify_improvement.py random
     model_choice = "random"  # default
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
@@ -271,9 +265,9 @@ if __name__ == "__main__":
             model_choice = "random"
 
     if model_choice == "fixed":
-        model_path = "apso_rl_agent/latest_ppo_apso_fixed_source_2.pth"
+        model_path = "apso_rl_agent/latest_ppo_apso_fixed_source_3.pth"
     else:
-        model_path = "apso_rl_agent/latest_ppo_apso_random_particles_2.pth"
+        model_path = "apso_rl_agent/latest_ppo_apso_random_particles_3.pth"
 
     print(f"[Info] Using '{model_choice}' model from {model_path}")
     try:
@@ -290,293 +284,78 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Warning] Failed to load agent from {model_path}: {e}. Proceeding with fresh agent (not ideal).")
 
-    # Evaluation configuration
+    # Evaluation configuration (FIXED grid + FIXED source, VARIABLE swarm size)
     N_RUNS = 100
     MAX_ITER = 300
-    NUM_PARTICLES = 20
-    NUM_SOURCES = 25
 
     lo = np.array([0.0, 0.0])
     hi = np.array([100.0, 100.0])
-
-    # C. Fixed-source comparison at (50, 50) over multiple runs
-    fixed_source = np.array([50.0, 50.0])
-    print("\n--- Fixed-source comparison at (50,50) over multiple runs ---")
-
-    fixed_baseline = run_fixed_baseline(
-        n_runs=N_RUNS,
-        max_iter=MAX_ITER,
-        num_particles=NUM_PARTICLES,
-        source=fixed_source,
-    )
-
-    fixed_rl = run_rl_guided_apso(
-        agent,
-        n_runs=N_RUNS,
-        max_iter=MAX_ITER,
-        num_particles=NUM_PARTICLES,
-        source=fixed_source,
-    )
-
-    # Per-run rows for CSV (same format as earlier rl_vs_fixed_results.csv)
-    fixed_rows = []
-    for r in range(N_RUNS):
-        fixed_rows.append({
-            "Ts": fixed_baseline["Ts"][r],
-            "I": fixed_baseline["I"][r],
-            "SD": fixed_baseline["SD"][r],
-            "Success": fixed_baseline["Success"][r],
-            "Type": "Fixed",
-        })
-        fixed_rows.append({
-            "Ts": fixed_rl["Ts"][r],
-            "I": fixed_rl["I"][r],
-            "SD": fixed_rl["SD"][r],
-            "Success": fixed_rl["Success"][r],
-            "Type": "RL",
-        })
-
-    fixed_df = pd.DataFrame(fixed_rows)
-    fixed_out_csv = "rl_vs_fixed_results.csv"
-    fixed_df.to_csv(fixed_out_csv, index=False)
-
-    print("[Info] Fixed-source results saved to rl_vs_fixed_results.csv")
-    print("[Summary @ (50,50)]")
-    print(f"  Fixed APSO:  Ts={np.mean(fixed_baseline['Ts']):.3f}, I={np.mean(fixed_baseline['I']):.2f}, SD={np.mean(fixed_baseline['SD']):.2f}")
-    print(f"  RL-APSO:     Ts={np.mean(fixed_rl['Ts']):.3f}, I={np.mean(fixed_rl['I']):.2f}, SD={np.mean(fixed_rl['SD']):.2f}")
-
-    # When using the "random" model, skip the random-source multi-source
-    # experiments and only run the fixed-source + particle-count sweep.
-    if model_choice != "random":
-        # Generate random source locations (reproducible via SEED above)
-        sources = np.random.uniform(lo, hi, size=(NUM_SOURCES, 2))
-
-        print(f"--- Running Comparative Analysis over {NUM_SOURCES} random sources ---")
-        print(f"Each configuration: {N_RUNS} runs, max_iter={MAX_ITER}, particles={NUM_PARTICLES}\n")
-
-        # Containers for per-source averaged metrics
-        base_Ts_mean, base_I_mean, base_SD_mean = [], [], []
-        rl_Ts_mean, rl_I_mean, rl_SD_mean = [], [], []
-
-        # Also collect full per-run results for optional CSV export
-        all_rows = []
-
-        for idx, src in enumerate(sources):
-            print(f"Source {idx+1}/{NUM_SOURCES} at {src}")
-
-            # Fixed APSO baseline
-            baseline_results = run_fixed_baseline(
-                n_runs=N_RUNS,
-                max_iter=MAX_ITER,
-                num_particles=NUM_PARTICLES,
-                source=src,
-            )
-
-            # RL-guided APSO
-            rl_results = run_rl_guided_apso(
-                agent,
-                n_runs=N_RUNS,
-                max_iter=MAX_ITER,
-                num_particles=NUM_PARTICLES,
-                source=src,
-            )
-
-            # Aggregate metrics for this source
-            base_Ts_mean.append(np.mean(baseline_results["Ts"]))
-            base_I_mean.append(np.mean(baseline_results["I"]))
-            base_SD_mean.append(np.mean(baseline_results["SD"]))
-
-            rl_Ts_mean.append(np.mean(rl_results["Ts"]))
-            rl_I_mean.append(np.mean(rl_results["I"]))
-            rl_SD_mean.append(np.mean(rl_results["SD"]))
-
-            # Extend rows for CSV: one row per run per method
-            for r in range(N_RUNS):
-                all_rows.append({
-                    "source_id": idx + 1,
-                    "source_x": src[0],
-                    "source_y": src[1],
-                    "run": r,
-                    "Ts": baseline_results["Ts"][r],
-                    "I": baseline_results["I"][r],
-                    "SD": baseline_results["SD"][r],
-                    "Success": baseline_results["Success"][r],
-                    "Type": "Fixed",
-                })
-                all_rows.append({
-                    "source_id": idx + 1,
-                    "source_x": src[0],
-                    "source_y": src[1],
-                    "run": r,
-                    "Ts": rl_results["Ts"][r],
-                    "I": rl_results["I"][r],
-                    "SD": rl_results["SD"][r],
-                    "Success": rl_results["Success"][r],
-                    "Type": "RL",
-                })
-
-        base_Ts_mean = np.array(base_Ts_mean)
-        base_I_mean = np.array(base_I_mean)
-        base_SD_mean = np.array(base_SD_mean)
-
-        rl_Ts_mean = np.array(rl_Ts_mean)
-        rl_I_mean = np.array(rl_I_mean)
-        rl_SD_mean = np.array(rl_SD_mean)
-
-        # Print simple tabular summary
-        print("\n" + "=" * 90)
-        print(f"{'Source':<8} | {'Location (x,y)':<25} | {'Fixed Ts':>10} | {'RL Ts':>10} | {'Fixed I':>10} | {'RL I':>10} | {'Fixed SD':>10} | {'RL SD':>10}")
-        print("-" * 90)
-        for i, src in enumerate(sources):
-            print(
-                f"{i+1:<8d} | "
-                f"({src[0]:6.2f}, {src[1]:6.2f}) | "
-                f"{base_Ts_mean[i]:10.2f} | {rl_Ts_mean[i]:10.2f} | "
-                f"{base_I_mean[i]:10.2f} | {rl_I_mean[i]:10.2f} | "
-                f"{base_SD_mean[i]:10.2f} | {rl_SD_mean[i]:10.2f}"
-            )
-        print("=" * 90)
-
-        # Summary of how often RL-APSO outperforms fixed APSO (lower is better for all metrics)
-        rl_better_Ts = np.sum(rl_Ts_mean < base_Ts_mean)
-        rl_better_I = np.sum(rl_I_mean < base_I_mean)
-        rl_better_SD = np.sum(rl_SD_mean < base_SD_mean)
-
-        rl_better_all = np.sum(
-            (rl_Ts_mean < base_Ts_mean)
-            & (rl_I_mean < base_I_mean)
-            & (rl_SD_mean < base_SD_mean)
-        )
-
-        print("\nRL-Guided APSO vs Fixed APSO (per-source averages):")
-        print(f"  Time Ts: RL better on {rl_better_Ts}/{NUM_SOURCES} sources")
-        print(f"  Iterations I: RL better on {rl_better_I}/{NUM_SOURCES} sources")
-        print(f"  Swarm distance SD: RL better on {rl_better_SD}/{NUM_SOURCES} sources")
-        print(f"  All three metrics: RL better on {rl_better_all}/{NUM_SOURCES} sources")
-
-        # Save per-run results and source positions
-        df_all = pd.DataFrame(all_rows)
-        out_csv = "rl_vs_fixed_multi_source_results.csv"
-        df_all.to_csv(out_csv, index=False)
-        print(f"[Info] Per-run multi-source results saved to {out_csv}")
-
-        src_df = pd.DataFrame({
-            "source_id": np.arange(1, NUM_SOURCES + 1),
-            "source_x": sources[:, 0],
-            "source_y": sources[:, 1],
-        })
-        src_df.to_csv("evaluated_sources.csv", index=False)
-        print("[Info] Source locations saved to evaluated_sources.csv")
-
-        # F. Visualization: comparison plots per source
-        x_idx = np.arange(NUM_SOURCES)
-        width = 0.35
-
-        fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharex=True)
-
-        # 1) Average source seeking time
-        axes[0].bar(x_idx - width / 2, base_Ts_mean, width, label="Fixed APSO")
-        axes[0].bar(x_idx + width / 2, rl_Ts_mean, width, label="RL-Guided APSO")
-        axes[0].set_title("Average Source Seeking Time per Source")
-        axes[0].set_ylabel("Time (s)")
-
-        # 2) Average iterations
-        axes[1].bar(x_idx - width / 2, base_I_mean, width, label="Fixed APSO")
-        axes[1].bar(x_idx + width / 2, rl_I_mean, width, label="RL-Guided APSO")
-        axes[1].set_title("Average Iterations per Source")
-        axes[1].set_ylabel("Iterations")
-
-        # 3) Average swarm distance
-        axes[2].bar(x_idx - width / 2, base_SD_mean, width, label="Fixed APSO")
-        axes[2].bar(x_idx + width / 2, rl_SD_mean, width, label="RL-Guided APSO")
-        axes[2].set_title("Average Swarm Distance per Source")
-        axes[2].set_ylabel("Total swarm distance (m)")
-
-        for ax in axes:
-            ax.set_xlabel("Source index")
-            ax.set_xticks(x_idx)
-            ax.set_xticklabels([str(i + 1) for i in range(NUM_SOURCES)])
-            ax.grid(axis="y", linestyle="--", alpha=0.3)
-
-        axes[0].legend(loc="best")
-
-        plt.tight_layout()
-        plt.savefig("multi_source_comparison.png", dpi=300)
-        print("[Info] Saved multi-source comparison plot to multi_source_comparison.png")
-    else:
-        print("[Info] 'random' model mode: skipping random-source multi-source tests; running only particle-count sweep.")
-
-    # H. Average source seeking time vs number of UAVs (fixed source at (50,50))
-    #    Evaluate a total of 100 UAV-count settings, each an integer in [5, 15],
-    #    distributed as uniformly as possible across the range.
-    rng = np.random.default_rng(SEED)
-    allowed_counts = np.arange(5, 16, 1)  # 5..15 inclusive
-    reps = 100 // len(allowed_counts)
-    remainder = 100 % len(allowed_counts)
-    uav_counts = np.concatenate([
-        np.repeat(allowed_counts, reps),
-        rng.choice(allowed_counts, size=remainder, replace=False) if remainder > 0 else np.array([], dtype=int),
-    ])
-    rng.shuffle(uav_counts)
-    uav_counts = np.sort(uav_counts)
-    avg_Ts_fixed = []
-    avg_Ts_rl = []
-
     fixed_source = np.array([50.0, 50.0])
 
-    for n_uav in uav_counts:
-        print(f"[Info] Evaluating average Ts for {n_uav} UAVs at source (50,50)")
+    # Sweep swarm sizes (edit as needed)
+    swarm_sizes = list(range(5, 31))
+
+    rows = []
+    mean_Ts_fixed = []
+    mean_Ts_rl = []
+
+    print("\n--- Fixed grid (100x100) & fixed source (50,50): swarm-size sweep ---")
+    for n_particles in swarm_sizes:
+        print(f"[Info] n_particles={n_particles}")
+
         base_res = run_fixed_baseline(
             n_runs=N_RUNS,
             max_iter=MAX_ITER,
-            num_particles=n_uav,
+            num_particles=n_particles,
             source=fixed_source,
         )
         rl_res = run_rl_guided_apso(
             agent,
             n_runs=N_RUNS,
             max_iter=MAX_ITER,
-            num_particles=n_uav,
+            num_particles=n_particles,
             source=fixed_source,
         )
 
-        avg_Ts_fixed.append(np.mean(base_res["Ts"]))
-        avg_Ts_rl.append(np.mean(rl_res["Ts"]))
+        # record per-run rows for CSV
+        for r in range(N_RUNS):
+            rows.append({
+                "n_particles": n_particles,
+                "run": r,
+                "Ts": base_res["Ts"][r],
+                "I": base_res["I"][r],
+                "SD": base_res["SD"][r],
+                "Success": base_res["Success"][r],
+                "Type": "Fixed",
+            })
+            rows.append({
+                "n_particles": n_particles,
+                "run": r,
+                "Ts": rl_res["Ts"][r],
+                "I": rl_res["I"][r],
+                "SD": rl_res["SD"][r],
+                "Success": rl_res["Success"][r],
+                "Type": "RL",
+            })
 
-    avg_Ts_fixed = np.array(avg_Ts_fixed)
-    avg_Ts_rl = np.array(avg_Ts_rl)
+        mean_Ts_fixed.append(float(np.mean(base_res["Ts"])))
+        mean_Ts_rl.append(float(np.mean(rl_res["Ts"])))
 
-    # Summary statistics over the 100 UAV-count evaluations
-    # (each element is the mean Ts across N_RUNS runs at that UAV count)
-    fixed_mean = float(np.mean(avg_Ts_fixed))
-    fixed_var = float(np.var(avg_Ts_fixed))
-    fixed_std = float(np.std(avg_Ts_fixed))
-
-    rl_mean = float(np.mean(avg_Ts_rl))
-    rl_var = float(np.var(avg_Ts_rl))
-    rl_std = float(np.std(avg_Ts_rl))
-
-    print("\n=== UAV-count sweep summary over 100 evaluations (Ts) ===")
-    print("[Fixed APSO]")
-    print(f"  Mean: {fixed_mean:.6f}")
-    print(f"  Variance: {fixed_var:.6f}")
-    print(f"  Std Dev: {fixed_std:.6f}")
-    print("[RL-APSO]")
-    print(f"  Mean: {rl_mean:.6f}")
-    print(f"  Variance: {rl_var:.6f}")
-    print(f"  Std Dev: {rl_std:.6f}")
+    out_csv = "rl_vs_fixed_fixedsource_swarm_sweep.csv"
+    pd.DataFrame(rows).to_csv(out_csv, index=False)
+    print(f"[Info] Saved sweep results to {out_csv}")
 
     plt.figure(figsize=(7, 5))
-    plt.plot(uav_counts, avg_Ts_fixed, "o-", label="Fixed APSO")
-    plt.plot(uav_counts, avg_Ts_rl, "s-", label="RL-Guided APSO")
-    plt.xlabel("Number of UAVs (particles)")
-    plt.ylabel("Average source seeking time Ts (s)")
-    plt.title("Average source seeking time vs number of UAVs\nSource at (50,50)")
+    plt.plot(swarm_sizes, mean_Ts_fixed, "o-", label="Fixed APSO")
+    plt.plot(swarm_sizes, mean_Ts_rl, "s-", label="RL-Guided APSO")
+    plt.xlabel("Swarm size (n_particles)")
+    plt.ylabel("Mean source seeking time Ts (s)")
+    plt.title("Fixed grid & fixed source: Ts vs swarm size")
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("avg_Ts_vs_num_uavs.png", dpi=300)
-    print("[Info] Saved plot of average Ts vs number of UAVs to avg_Ts_vs_num_uavs.png")
+    plt.savefig("fixedsource_Ts_vs_swarm_size.png", dpi=300)
+    print("[Info] Saved plot to fixedsource_Ts_vs_swarm_size.png")
 
     # G. Reward component analysis (from training)
     # Loads mean reward terms that were logged during RL-APSO training
