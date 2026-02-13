@@ -1,0 +1,44 @@
+Running Test 1: Fixed Swarm Size (20)
+
+======================================================================
+TEST 1: Fixed Swarm Size = 20
+----------------------------------------------------------------------
+METRIC                    | STANDARD APSO   | ERROR-RL APSO  
+----------------------------------------------------------------------
+Avg Time (s)              | 14.94           | 22.64          
+Avg Iterations            | 13.30           | 24.28          
+Avg Swarm Dist            | 3256.62         | 4611.49        
+Success Rate              | 1.00            | 1.00           
+======================================================================
+Running Test 2: Variable Swarm Sizes (5–20)
+
+======================================================================
+TEST 2: Variable Swarm Size (5–20)
+----------------------------------------------------------------------
+METRIC                    | STANDARD APSO   | ERROR-RL APSO  
+----------------------------------------------------------------------
+Avg Time (s)              | 13.25           | 26.98          
+Avg Iterations            | 44.17           | 39.63          
+Avg Swarm Dist            | 1982.98         | 3025.49        
+Success Rate              | 0.97            | 1.00           
+======================================================================
+
+Structured evaluation: computing mean Time vs number of particles...
+  Evaluating N = 5 (runs = 100)... done.
+  Evaluating N = 6 (runs = 100)... done.
+  Evaluating N = 7 (runs = 100)... done.
+  Evaluating N = 8 (runs = 100)... done.
+  Evaluating N = 9 (runs = 100)... done.
+  Evaluating N = 10 (runs = 100)... done.
+  Evaluating N = 11 (runs = 100)... done.
+  Evaluating N = 12 (runs = 100)... done.
+  Evaluating N = 13 (runs = 100)... done.
+  Evaluating N = 14 (runs = 100)... done.
+  Evaluating N = 15 (runs = 100)... done.
+  Evaluating N = 16 (runs = 100)... done.
+  Evaluating N = 17 (runs = 100)... done.
+  Evaluating N = 18 (runs = 100)... done.
+  Evaluating N = 19 (runs = 100)... done.
+  Evaluating N = 20 (runs = 100)... done.
+
+Saved plot to time_vs_particles.png

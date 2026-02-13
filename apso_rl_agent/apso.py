@@ -189,6 +189,54 @@ class APSO_SourceSeeker:
         min_dist = min(np.linalg.norm(p.x - self.source_pos) for p in self.particles)
         found = (min_dist <= self.termination_dist)
         return found, float(min_dist)
+    def run_monte_carlo(self, runs: int = 30, max_iter: int = 1000) -> dict:
+        """
+        Perform multiple independent Monte Carlo runs and compute metrics:
+          - mu_Ts (average time to find),
+          - mu_I (average iterations),
+          - mu_SD (average swarm distance)
+        Returns dictionary with metrics and raw arrays.
+        """
+        Ts_list = []
+        I_list = []
+        SD_list = []
+        all_histories = []
+
+        for r in range(runs):
+            # Reinitialize swarm for each run
+            self.particles = [Particle(self.dim, self.bounds[0], self.bounds[1]) for _ in range(self.N)]
+            for p in self.particles:
+                s = measure_signal(p.x, self.source_pos, S_s=self.S_s, alpha=self.alpha)
+                p.best_signal = s
+                p.best_x = p.x.copy()
+            self.gbest_signal = max(p.best_signal for p in self.particles)
+            self.gbest_x = max(self.particles, key=lambda p: p.best_signal).best_x.copy()
+            # reset distances and iteration
+            for p in self.particles:
+                p.dist_travelled = 0.0
+                p.v.fill(0.0)
+                p.a.fill(0.0)
+            self.iteration = 0
+
+            Ts, I, SD, hist = self.run_single(max_iter=max_iter)
+            Ts_list.append(Ts)
+            I_list.append(I)
+            SD_list.append(SD)
+            all_histories.append(hist)
+
+        mu_Ts = float(np.mean(Ts_list))
+        mu_I = float(np.mean(I_list))
+        mu_SD = float(np.mean(SD_list))
+
+        return {
+            "mu_Ts": mu_Ts,
+            "mu_I": mu_I,
+            "mu_SD": mu_SD,
+            "Ts_list": Ts_list,
+            "I_list": I_list,
+            "SD_list": SD_list,
+            "histories": all_histories,
+        }
 
     def run_single(
         self,
@@ -260,6 +308,121 @@ class APSO_SourceSeeker:
             swarm_distance_total,
             traj_history,
         )
+
+
+class APSO_FunctionOptimizer:
+    """APSO variant for generic function minimisation.
+
+    This reuses the third-order APSO update (w1, w2, c1, c2, T) but
+    evaluates a user-supplied objective ``f(x)`` instead of the
+    distance-based signal model used by ``APSO_SourceSeeker``.
+
+    The swarm minimises ``objective(x)``; personal and global bests
+    are tracked in terms of function value.
+    """
+
+    class Particle:
+        def __init__(self, dim: int, lo: np.ndarray, hi: np.ndarray):
+            self.x = np.random.uniform(lo, hi, size=dim)
+            self.v = np.zeros(dim, dtype=float)
+            self.a = np.zeros(dim, dtype=float)
+            self.best_x = self.x.copy()
+            self.best_value = np.inf
+
+    def __init__(
+        self,
+        objective: Callable[[np.ndarray], float],
+        bounds: Tuple[np.ndarray, np.ndarray],
+        num_particles: int = 10,
+        w1: float = 0.6,
+        w2: float = 0.4,
+        c1: float = 1.0,
+        c2: float = 1.0,
+        T: float = 1.0,
+        termination_tol: float = 1e-8,
+        seed: Optional[int] = None,
+    ) -> None:
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        else:
+            self.rng = np.random.default_rng()
+
+        validate_apso_params(w1, w2, c1, c2, T)
+
+        self.objective = objective
+        self.bounds = (np.asarray(bounds[0], dtype=float), np.asarray(bounds[1], dtype=float))
+        self.dim = self.bounds[0].shape[0]
+        self.N = int(num_particles)
+
+        self.w1 = float(w1)
+        self.w2 = float(w2)
+        self.c1 = float(c1)
+        self.c2 = float(c2)
+        self.T = float(T)
+
+        self.termination_tol = float(termination_tol)
+
+        # swarm initialisation
+        lo, hi = self.bounds
+        self.particles: List[APSO_FunctionOptimizer.Particle] = [
+            APSO_FunctionOptimizer.Particle(self.dim, lo, hi) for _ in range(self.N)
+        ]
+
+        # evaluate initial personal and global bests
+        for p in self.particles:
+            f_val = float(self.objective(p.x))
+            p.best_value = f_val
+            p.best_x = p.x.copy()
+
+        best_particle = min(self.particles, key=lambda p: p.best_value)
+        self.gbest_value = float(best_particle.best_value)
+        self.gbest_x = best_particle.best_x.copy()
+
+        self.iteration = 0
+
+    def step(self) -> Tuple[bool, float]:
+        """Perform one APSO iteration for function minimisation.
+
+        Returns
+        -------
+        found : bool
+            True if the global best value is below ``termination_tol``.
+        gbest_value : float
+            Current global best objective value.
+        """
+
+        # 1) evaluate current positions and update personal bests
+        for p in self.particles:
+            f_val = float(self.objective(p.x))
+            if f_val < p.best_value:
+                p.best_value = f_val
+                p.best_x = p.x.copy()
+
+        # 2) update global best (argmin over personal best values)
+        best_particle = min(self.particles, key=lambda p: p.best_value)
+        self.gbest_value = float(best_particle.best_value)
+        self.gbest_x = best_particle.best_x.copy()
+
+        # 3) APSO third-order updates (same structure as APSO_SourceSeeker)
+        for p in self.particles:
+            r1 = self.rng.uniform(0.0, self.c1)
+            r2 = self.rng.uniform(0.0, self.c2)
+
+            personal_term = (p.best_x - p.x)
+            global_term = (self.gbest_x - p.x)
+
+            a_new = self.w1 * p.a + r1 * personal_term + r2 * global_term
+            v_new = self.w2 * p.v + a_new * self.T
+            x_new = p.x + v_new * self.T
+
+            p.a = a_new
+            p.v = v_new
+            p.x = np.clip(x_new, self.bounds[0], self.bounds[1])
+
+        self.iteration += 1
+
+        found = self.gbest_value <= self.termination_tol
+        return found, self.gbest_value
 
 
 

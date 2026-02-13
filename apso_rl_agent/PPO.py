@@ -28,9 +28,9 @@ class ActorCritic(nn.Module):
         
         # MLP Actor
         self.actor = nn.Sequential(
-            nn.Linear(state_dim, 64),
+            nn.Linear(state_dim, 128),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 64),
             nn.Tanh(),
             nn.Linear(64, action_dim),
             nn.Tanh() # Output [-1, 1]
@@ -38,9 +38,9 @@ class ActorCritic(nn.Module):
         
         # MLP Critic
         self.critic = nn.Sequential(
-            nn.Linear(state_dim, 64),
+            nn.Linear(state_dim, 128),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 64),
             nn.Tanh(),
             nn.Linear(64, 1)
         )
@@ -69,7 +69,7 @@ class PPOAgent:
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.buffer = []
-        self.K_epochs = 10
+        self.K_epochs = 50
         self.eps_clip = 0.2
         self.gamma = 0.99
 
