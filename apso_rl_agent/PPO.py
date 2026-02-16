@@ -28,19 +28,26 @@ class ActorCritic(nn.Module):
         
         # MLP Actor
         self.actor = nn.Sequential(
-            nn.Linear(state_dim, 128),
+            nn.Linear(state_dim, 512),
             nn.Tanh(),
-            nn.Linear(128, 64),
+            nn.Linear(512, 256),
             nn.Tanh(),
-            nn.Linear(64, action_dim),
-            nn.Tanh() # Output [-1, 1]
+            nn.Linear(256, 128),
+            nn.Tanh(),
+            nn.Linear(128,64),
+            nn.Linear(64,action_dim)
+                      
         )
         
         # MLP Critic
         self.critic = nn.Sequential(
-            nn.Linear(state_dim, 128),
+            nn.Linear(state_dim, 512),
             nn.Tanh(),
-            nn.Linear(128, 64),
+            nn.Linear(512, 256),
+            nn.Tanh(),
+            nn.Linear(256,128),
+            nn.Tanh(),
+            nn.Linear(128,64),
             nn.Tanh(),
             nn.Linear(64, 1)
         )

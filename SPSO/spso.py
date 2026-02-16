@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Support both `python SPSO/spso.py` and `python -m SPSO.spso`
 try:
@@ -153,10 +154,9 @@ class SPSO:
 
         return time_to_find, max_iterations, swarm_distance
 def main():
-    import matplotlib.pyplot as plt
 
     swarm_sizes = list(range(5, 31))
-    runs = 10
+    runs = 100
     max_iter = 500
 
     avg_time = []

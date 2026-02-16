@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 
 # Make repo root importable even when running `python SPSO/rl_spso.py`
@@ -30,6 +33,253 @@ from apso_rl_agent.PPO import PPOAgent
 
 # local import (works when file executed by path)
 from spso import SPSO
+
+
+class ReplayBuffer:
+	def __init__(self, state_dim: int, action_dim: int, capacity: int, seed: int = 0):
+		self.capacity = int(capacity)
+		self.state = np.zeros((self.capacity, state_dim), dtype=np.float32)
+		self.action = np.zeros((self.capacity, action_dim), dtype=np.float32)
+		self.reward = np.zeros((self.capacity, 1), dtype=np.float32)
+		self.next_state = np.zeros((self.capacity, state_dim), dtype=np.float32)
+		self.done = np.zeros((self.capacity, 1), dtype=np.float32)
+		self.ptr = 0
+		self.size = 0
+		self.rng = np.random.default_rng(seed)
+
+	def add(self, s: np.ndarray, a: np.ndarray, r: float, s2: np.ndarray, d: bool) -> None:
+		idx = self.ptr
+		self.state[idx] = s
+		self.action[idx] = a
+		self.reward[idx] = float(r)
+		self.next_state[idx] = s2
+		self.done[idx] = 1.0 if d else 0.0
+		self.ptr = (self.ptr + 1) % self.capacity
+		self.size = min(self.size + 1, self.capacity)
+
+	def sample(self, batch_size: int) -> Tuple[torch.Tensor, ...]:
+		bs = min(int(batch_size), self.size)
+		idx = self.rng.integers(0, self.size, size=bs)
+		s = torch.as_tensor(self.state[idx], dtype=torch.float32)
+		a = torch.as_tensor(self.action[idx], dtype=torch.float32)
+		r = torch.as_tensor(self.reward[idx], dtype=torch.float32)
+		s2 = torch.as_tensor(self.next_state[idx], dtype=torch.float32)
+		d = torch.as_tensor(self.done[idx], dtype=torch.float32)
+		return s, a, r, s2, d
+
+
+class MLPActor(nn.Module):
+	def __init__(self, state_dim: int, action_dim: int):
+		super().__init__()
+		self.net = nn.Sequential(
+			nn.Linear(state_dim, 128),
+			nn.ReLU(),
+			nn.Linear(128, 64),
+			nn.ReLU(),
+			nn.Linear(64, action_dim),
+			nn.Tanh(),
+		)
+
+	def forward(self, s: torch.Tensor) -> torch.Tensor:
+		return self.net(s)
+
+
+class MLPCritic(nn.Module):
+	def __init__(self, state_dim: int, action_dim: int):
+		super().__init__()
+		self.net = nn.Sequential(
+			nn.Linear(state_dim + action_dim, 128),
+			nn.ReLU(),
+			nn.Linear(128, 64),
+			nn.ReLU(),
+			nn.Linear(64, 1),
+		)
+
+	def forward(self, s: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+		return self.net(torch.cat([s, a], dim=-1))
+
+
+def _soft_update(target: nn.Module, source: nn.Module, tau: float) -> None:
+	with torch.no_grad():
+		for tp, sp in zip(target.parameters(), source.parameters()):
+			tp.data.mul_(1.0 - tau)
+			tp.data.add_(tau * sp.data)
+
+
+class DDPGAgent:
+	def __init__(
+		self,
+		state_dim: int,
+		action_dim: int,
+		lr_actor: float = 1e-4,
+		lr_critic: float = 1e-3,
+		gamma: float = 0.99,
+		tau: float = 0.005,
+		act_noise: float = 0.1,
+		seed: int = 0,
+	):
+		self.actor = MLPActor(state_dim, action_dim)
+		self.actor_target = MLPActor(state_dim, action_dim)
+		self.critic = MLPCritic(state_dim, action_dim)
+		self.critic_target = MLPCritic(state_dim, action_dim)
+		self.actor_target.load_state_dict(self.actor.state_dict())
+		self.critic_target.load_state_dict(self.critic.state_dict())
+
+		self.actor_opt = optim.Adam(self.actor.parameters(), lr=lr_actor)
+		self.critic_opt = optim.Adam(self.critic.parameters(), lr=lr_critic)
+
+		self.gamma = float(gamma)
+		self.tau = float(tau)
+		self.act_noise = float(act_noise)
+		self.rng = np.random.default_rng(seed)
+
+	def select_action(self, state: np.ndarray, noise: bool = True) -> np.ndarray:
+		with torch.no_grad():
+			s = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0)
+			a = self.actor(s).squeeze(0).cpu().numpy()
+		if noise:
+			a = a + self.rng.normal(0.0, self.act_noise, size=a.shape)
+		return np.clip(a, -1.0, 1.0).astype(np.float32)
+
+	def update(self, replay: ReplayBuffer, batch_size: int) -> None:
+		s, a, r, s2, d = replay.sample(batch_size)
+
+		with torch.no_grad():
+			a2 = self.actor_target(s2)
+			q_target = self.critic_target(s2, a2)
+			y = r + self.gamma * (1.0 - d) * q_target
+
+		q = self.critic(s, a)
+		critic_loss = nn.MSELoss()(q, y)
+		self.critic_opt.zero_grad()
+		critic_loss.backward()
+		self.critic_opt.step()
+
+		# actor update
+		actor_loss = -self.critic(s, self.actor(s)).mean()
+		self.actor_opt.zero_grad()
+		actor_loss.backward()
+		self.actor_opt.step()
+
+		_soft_update(self.actor_target, self.actor, self.tau)
+		_soft_update(self.critic_target, self.critic, self.tau)
+
+	def save(self, path: str) -> None:
+		os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+		torch.save({"actor": self.actor.state_dict(), "critic": self.critic.state_dict()}, path)
+
+	def load(self, path: str) -> None:
+		ckpt = torch.load(path, map_location="cpu")
+		self.actor.load_state_dict(ckpt["actor"])
+		self.critic.load_state_dict(ckpt["critic"])
+		self.actor_target.load_state_dict(self.actor.state_dict())
+		self.critic_target.load_state_dict(self.critic.state_dict())
+
+
+class TD3Agent:
+	def __init__(
+		self,
+		state_dim: int,
+		action_dim: int,
+		lr_actor: float = 1e-4,
+		lr_critic: float = 1e-3,
+		gamma: float = 0.99,
+		tau: float = 0.005,
+		act_noise: float = 0.1,
+		policy_noise: float = 0.2,
+		noise_clip: float = 0.5,
+		policy_delay: int = 2,
+		seed: int = 0,
+	):
+		self.actor = MLPActor(state_dim, action_dim)
+		self.actor_target = MLPActor(state_dim, action_dim)
+		self.critic1 = MLPCritic(state_dim, action_dim)
+		self.critic2 = MLPCritic(state_dim, action_dim)
+		self.critic1_target = MLPCritic(state_dim, action_dim)
+		self.critic2_target = MLPCritic(state_dim, action_dim)
+		self.actor_target.load_state_dict(self.actor.state_dict())
+		self.critic1_target.load_state_dict(self.critic1.state_dict())
+		self.critic2_target.load_state_dict(self.critic2.state_dict())
+
+		self.actor_opt = optim.Adam(self.actor.parameters(), lr=lr_actor)
+		self.critic1_opt = optim.Adam(self.critic1.parameters(), lr=lr_critic)
+		self.critic2_opt = optim.Adam(self.critic2.parameters(), lr=lr_critic)
+
+		self.gamma = float(gamma)
+		self.tau = float(tau)
+		self.act_noise = float(act_noise)
+		self.policy_noise = float(policy_noise)
+		self.noise_clip = float(noise_clip)
+		self.policy_delay = int(policy_delay)
+		self.total_it = 0
+		self.rng = np.random.default_rng(seed)
+
+	def select_action(self, state: np.ndarray, noise: bool = True) -> np.ndarray:
+		with torch.no_grad():
+			s = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0)
+			a = self.actor(s).squeeze(0).cpu().numpy()
+		if noise:
+			a = a + self.rng.normal(0.0, self.act_noise, size=a.shape)
+		return np.clip(a, -1.0, 1.0).astype(np.float32)
+
+	def update(self, replay: ReplayBuffer, batch_size: int) -> None:
+		self.total_it += 1
+		s, a, r, s2, d = replay.sample(batch_size)
+
+		with torch.no_grad():
+			noise = torch.clamp(
+				torch.randn_like(a) * self.policy_noise,
+				-self.noise_clip,
+				self.noise_clip,
+			)
+			a2 = torch.clamp(self.actor_target(s2) + noise, -1.0, 1.0)
+			q1_t = self.critic1_target(s2, a2)
+			q2_t = self.critic2_target(s2, a2)
+			q_t = torch.min(q1_t, q2_t)
+			y = r + self.gamma * (1.0 - d) * q_t
+
+		q1 = self.critic1(s, a)
+		q2 = self.critic2(s, a)
+		loss1 = nn.MSELoss()(q1, y)
+		loss2 = nn.MSELoss()(q2, y)
+
+		self.critic1_opt.zero_grad()
+		loss1.backward()
+		self.critic1_opt.step()
+
+		self.critic2_opt.zero_grad()
+		loss2.backward()
+		self.critic2_opt.step()
+
+		if self.total_it % self.policy_delay == 0:
+			actor_loss = -self.critic1(s, self.actor(s)).mean()
+			self.actor_opt.zero_grad()
+			actor_loss.backward()
+			self.actor_opt.step()
+
+			_soft_update(self.actor_target, self.actor, self.tau)
+			_soft_update(self.critic1_target, self.critic1, self.tau)
+			_soft_update(self.critic2_target, self.critic2, self.tau)
+
+	def save(self, path: str) -> None:
+		os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+		torch.save(
+			{
+				"actor": self.actor.state_dict(),
+				"critic1": self.critic1.state_dict(),
+				"critic2": self.critic2.state_dict(),
+			},
+			path,
+		)
+
+	def load(self, path: str) -> None:
+		ckpt = torch.load(path, map_location="cpu")
+		self.actor.load_state_dict(ckpt["actor"])
+		self.critic1.load_state_dict(ckpt["critic1"])
+		self.critic2.load_state_dict(ckpt["critic2"])
+		self.actor_target.load_state_dict(self.actor.state_dict())
+		self.critic1_target.load_state_dict(self.critic1.state_dict())
+		self.critic2_target.load_state_dict(self.critic2.state_dict())
 
 
 @dataclass
@@ -102,11 +352,9 @@ class RLSPOSOEnv:
 			speed=float(self.cfg.speed),
 		)
 
-		# Override/randomize the source location (SPSO defaults to center)
-		if source_pos is None:
-			lo, hi = 0.0, self.cfg.side_length
-			source_pos = self.rng.uniform(low=lo, high=hi, size=2)
-		self.spso.source = np.array(source_pos, dtype=float)
+		# Keep source location fixed (SPSO defaults to center) unless explicitly provided.
+		if source_pos is not None:
+			self.spso.source = np.array(source_pos, dtype=float)
 
 		self.current_iter = 0
 		self.prev_best_signal = float(-self.spso.global_best_signal)
@@ -197,20 +445,26 @@ class RLSPOSOEnv:
 
 		proximity_term = self.cfg.gamma_close * np.exp(-self.cfg.proximity_decay * min_dist_norm)
 
+		# Scale reward by swarm size for this SPSO run.
+		n_scale = float(self.spso.n)
+		time_cost_term *= n_scale
+		iteration_term *= n_scale
+		proximity_term *= n_scale
+		invalid_penalty *= n_scale
 		reward = time_cost_term + iteration_term + proximity_term + invalid_penalty
 
 		success_term = 0.0
 		timeout_term = 0.0
 		done = False
 		if found:
-			success_term = self.cfg.success_bonus
+			success_term = self.cfg.success_bonus * n_scale
 			reward += success_term
 			done = True
 
 		self.current_iter += 1
 		if self.current_iter >= self.cfg.max_iter:
 			done = True
-			timeout_term = self.cfg.timeout_penalty
+			timeout_term = self.cfg.timeout_penalty * n_scale
 			reward += timeout_term
 
 		# Logging
@@ -242,46 +496,89 @@ class RLSPOSOEnv:
 		return self._get_state(), reward_norm, done, info
 
 
-def train(cfg: RLSPOSOConfig, episodes: int, model_path: str, seed: int | None = 0) -> None:
+def train(cfg: RLSPOSOConfig, episodes: int, model_path: str, seed: int | None = 0, algo: str = "ppo") -> None:
 	env = RLSPOSOEnv(cfg, seed=seed)
 
 	state_dim = 7
 	action_dim = 2
-	agent = PPOAgent(state_dim=state_dim, action_dim=action_dim, lr=1e-4)
+	algo = algo.lower()
+
+	if algo == "ppo":
+		agent: object = PPOAgent(state_dim=state_dim, action_dim=action_dim, lr=2e-4)
+	elif algo == "ddpg":
+		agent = DDPGAgent(state_dim=state_dim, action_dim=action_dim, seed=int(seed or 0))
+	elif algo == "td3":
+		agent = TD3Agent(state_dim=state_dim, action_dim=action_dim, seed=int(seed or 0))
+	else:
+		raise ValueError(f"Unknown algo '{algo}'. Use ppo, ddpg, or td3.")
+
+	replay = None
+	if algo in {"ddpg", "td3"}:
+		replay = ReplayBuffer(state_dim=state_dim, action_dim=action_dim, capacity=200_000, seed=int(seed or 0))
+		batch_size = 256
+		start_steps = 2000
+		updates_per_step = 1
 
 	os.makedirs(os.path.dirname(model_path) or ".", exist_ok=True)
 
 	for ep in range(1, episodes + 1):
-		state = env.reset()
+		# Randomize swarm size per episode (matches n_particles_norm mapping in state).
+		n_particles = int(env.rng.integers(low=5, high=31))
+		state = env.reset(n_particles=n_particles)
 		ep_return = 0.0
 		done = False
 
-		for _ in range(cfg.max_iter):
-			action, logprob = agent.select_action(state)
-			next_state, reward, done, _info = env.step(action)
-			agent.store(state, action, logprob, reward, done)
+		for t in range(cfg.max_iter):
+			if algo == "ppo":
+				action, logprob = agent.select_action(state)  # type: ignore[attr-defined]
+				next_state, reward, done, _info = env.step(action)
+				agent.store(state, action, logprob, reward, done)  # type: ignore[attr-defined]
+			else:
+				assert replay is not None
+				# random exploration for initial steps
+				if replay.size < start_steps:
+					action = np.random.uniform(-1.0, 1.0, size=(action_dim,)).astype(np.float32)
+				else:
+					action = agent.select_action(state, noise=True)  # type: ignore[attr-defined]
+				next_state, reward, done, _info = env.step(action)
+				replay.add(state, action, float(reward), next_state, bool(done))
+				# learning
+				if replay.size >= batch_size:
+					for _ in range(updates_per_step):
+						agent.update(replay, batch_size=batch_size)  # type: ignore[attr-defined]
+
 			ep_return += float(reward)
 			state = next_state
 			if done:
 				break
 
-		agent.update()
+		if algo == "ppo":
+			agent.update()  # type: ignore[attr-defined]
 
 		if ep % 10 == 0:
 			print(f"[train] episode={ep:5d}  return={ep_return:9.3f}  iters={env.current_iter:4d}  last_c1={env.spso.c1:.3f} last_c2={env.spso.c2:.3f}")
 
 		if ep % 100 == 0:
-			agent.save(model_path)
+			agent.save(model_path)  # type: ignore[attr-defined]
 			print(f"[train] saved checkpoint -> {model_path}")
 
-	agent.save(model_path)
+	agent.save(model_path)  # type: ignore[attr-defined]
 	print(f"[train] done, saved -> {model_path}")
 
 
-def evaluate(cfg: RLSPOSOConfig, model_path: str, episodes: int = 30, seed: int | None = 1) -> None:
+def evaluate(cfg: RLSPOSOConfig, model_path: str, episodes: int = 30, seed: int | None = 1, algo: str = "ppo") -> None:
 	env = RLSPOSOEnv(cfg, seed=seed)
-	agent = PPOAgent(state_dim=7, action_dim=2, lr=1e-4)
-	agent.load(model_path)
+	algo = algo.lower()
+	if algo == "ppo":
+		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=1e-4)
+	elif algo == "ddpg":
+		agent = DDPGAgent(state_dim=7, action_dim=2, seed=int(seed or 0))
+	elif algo == "td3":
+		agent = TD3Agent(state_dim=7, action_dim=2, seed=int(seed or 0))
+	else:
+		raise ValueError(f"Unknown algo '{algo}'. Use ppo, ddpg, or td3.")
+
+	agent.load(model_path)  # type: ignore[attr-defined]
 
 	times = []
 	iters = []
@@ -290,7 +587,10 @@ def evaluate(cfg: RLSPOSOConfig, model_path: str, episodes: int = 30, seed: int 
 	for _ in range(episodes):
 		state = env.reset()
 		for _ in range(cfg.max_iter):
-			action, _lp = agent.select_action(state)
+			if algo == "ppo":
+				action, _lp = agent.select_action(state)  # type: ignore[attr-defined]
+			else:
+				action = agent.select_action(state, noise=False)  # type: ignore[attr-defined]
 			state, _r, done, info = env.step(action)
 			if done:
 				if info.get("found", False):
@@ -310,6 +610,7 @@ def evaluate(cfg: RLSPOSOConfig, model_path: str, episodes: int = 30, seed: int 
 
 def parse_args() -> argparse.Namespace:
 	p = argparse.ArgumentParser()
+	p.add_argument("--algo", type=str, default="ppo", choices=["ppo", "ddpg", "td3"], help="RL algorithm to use")
 	p.add_argument("--train", action="store_true", help="Train PPO to control SPSO c1/c2")
 	p.add_argument("--eval", action="store_true", help="Evaluate a trained PPO controller")
 	p.add_argument("--episodes", type=int, default=12000)
@@ -333,9 +634,9 @@ def main() -> None:
 		raise SystemExit("Pass exactly one of --train or --eval")
 
 	if args.train:
-		train(cfg=cfg, episodes=int(args.episodes), model_path=str(args.model_path), seed=int(args.seed))
+		train(cfg=cfg, episodes=int(args.episodes), model_path=str(args.model_path), seed=int(args.seed), algo=str(args.algo))
 	else:
-		evaluate(cfg=cfg, model_path=str(args.model_path), episodes=max(1, int(args.episodes) // 10), seed=int(args.seed))
+		evaluate(cfg=cfg, model_path=str(args.model_path), episodes=max(1, int(args.episodes) // 10), seed=int(args.seed), algo=str(args.algo))
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ def run_rl_apso_training_random_particles():
 
     state_dim = 9
     action_dim = 4
-    lr = 2e-4
+    lr = 3e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
     num_episodes = 12000
@@ -76,8 +76,8 @@ def run_rl_apso_training_random_particles():
             )
 
     # Save model trained with variable swarm sizes
-    agent.save(os.path.join(current_dir, "latest_ppo_apso_random_particles_3.pth"))
-    print("Model saved to latest_ppo_apso_random_particles_3.pth")
+    agent.save(os.path.join(current_dir, "models/latest_ppo_apso_random_particles_4.pth"))
+    print("Model saved to models/latest_ppo_apso_random_particles_4.pth")
 
     # Save mean reward component statistics for offline analysis
     # component_means = env.get_reward_component_means()

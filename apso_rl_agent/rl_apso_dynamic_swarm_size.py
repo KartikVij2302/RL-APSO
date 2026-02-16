@@ -183,7 +183,7 @@ class RLAPSOEnv:
         min_dist_norm = min_dist / (map_diag + 1e-6)
 
         # Time cost: use per-UAV average (invariant to num_particles) and reduce weight
-        alpha_time = 100.0   # smaller than 15 to avoid dominance
+        alpha_time = 200.0   # smaller than 15 to avoid dominance
         time_cost_term = -alpha_time * np.log1p(step_time)
 
         # Iteration penalty: keep but moderate
@@ -193,7 +193,7 @@ class RLAPSOEnv:
 
         # Proximity: normalize by map scale, and increase weight so it matters more
         gamma_close = 20.0
-        proximity_term = gamma_close * np.exp(-2.0 * min_dist_norm)  # tuned so value decays across map scale
+        proximity_term = gamma_close * np.exp(-1.0 * min_dist_norm)  # tuned so value decays across map scale
 
         # Keep invalid param penalty modest
         invalid_param_penalty = invalid_param_penalty  # as computed before (-8 if invalid)
