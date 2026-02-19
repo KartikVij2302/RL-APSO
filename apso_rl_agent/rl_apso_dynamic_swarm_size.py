@@ -153,7 +153,7 @@ class RLAPSOEnv:
             # Mark action as invalid and add a modest penalty; APSO continues
             # with its previous stable parameters so exploration isn't overly discouraged.
             valid_params = False
-            invalid_param_penalty = -8.0
+            invalid_param_penalty = -80.0
         # --- 2. RUN PHYSICS ---
         prev_pos_matrix = np.array([p.x.copy() for p in self.apso.particles])
         try:
@@ -182,9 +182,11 @@ class RLAPSOEnv:
         map_diag = getattr(self, "map_diag", 100.0)   # set map_diag on reset() if you randomize map size
         min_dist_norm = min_dist / (map_diag + 1e-6)
 
-        # Time cost: use per-UAV average (invariant to num_particles) and reduce weight
-        alpha_time = 200.0   # smaller than 15 to avoid dominance
-        time_cost_term = -alpha_time * np.log1p(step_time)
+        alpha_time = 5.0      # start smaller than 200
+        lambda_time = 1.0      # controls sharpness
+
+        time_cost_term = -alpha_time * (np.exp(lambda_time * step_time) - 1.0)
+
 
         # Iteration penalty: keep but moderate
         beta_iter = 1.0
@@ -192,7 +194,7 @@ class RLAPSOEnv:
         iteration_term = -beta_iter * np.exp(frac)
 
         # Proximity: normalize by map scale, and increase weight so it matters more
-        gamma_close = 20.0
+        gamma_close = 10.0
         proximity_term = gamma_close * np.exp(-1.0 * min_dist_norm)  # tuned so value decays across map scale
 
         # Keep invalid param penalty modest

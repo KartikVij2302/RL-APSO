@@ -35,7 +35,7 @@ def run_rl_apso_training_random_particles():
 
     state_dim = 9
     action_dim = 4
-    lr = 3e-4
+    lr = 1e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
     num_episodes = 12000

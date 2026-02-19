@@ -35,6 +35,160 @@ from apso_rl_agent.PPO import PPOAgent
 from spso import SPSO
 
 
+def compare_standard_vs_rl(
+	cfg: RLSPSOConfig,
+	model_path: str,
+	episodes: int = 100,
+	seed: int | None = 0,
+	algo: str = "ppo",
+	swarm_size_low: int = 5,
+	swarm_size_high: int = 31,
+) -> Dict[str, float]:
+	"""Compare standard SPSO vs RL-enhanced SPSO.
+
+	Computes averages over `episodes` for:
+	- source seeking time
+	- iterations used
+	- total swarm distance travelled
+
+	Results are stratified by swarm size N.
+	
+	For each N in [swarm_size_low, swarm_size_high-1], runs `episodes` trials and reports
+	per-N mean ± std for:
+	- source seeking time
+	- iterations used
+	- total swarm distance travelled
+
+	Returns a dict with both baselines' means.
+	"""
+	algo = str(algo).lower()
+	if not os.path.exists(model_path):
+		raise SystemExit(f"Model file not found: {model_path}")
+	if int(swarm_size_low) >= int(swarm_size_high):
+		raise ValueError("swarm_size_low must be < swarm_size_high")
+
+	# Per-N buffers
+	std_times_by_n: dict[int, list[float]] = {n: [] for n in range(int(swarm_size_low), int(swarm_size_high))}
+	std_iters_by_n: dict[int, list[float]] = {n: [] for n in range(int(swarm_size_low), int(swarm_size_high))}
+	std_swarm_dists_by_n: dict[int, list[float]] = {n: [] for n in range(int(swarm_size_low), int(swarm_size_high))}
+	rl_times_by_n: dict[int, list[float]] = {n: [] for n in range(int(swarm_size_low), int(swarm_size_high))}
+	rl_iters_by_n: dict[int, list[float]] = {n: [] for n in range(int(swarm_size_low), int(swarm_size_high))}
+	rl_swarm_dists_by_n: dict[int, list[float]] = {n: [] for n in range(int(swarm_size_low), int(swarm_size_high))}
+
+	# Build RL agent + env
+	env = RLSPSOEnv(cfg, seed=seed)
+	if algo == "ppo":
+		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=1e-4)
+	elif algo == "ddpg":
+		agent = DDPGAgent(state_dim=7, action_dim=2, seed=int(seed or 0))
+	elif algo == "td3":
+		agent = TD3Agent(state_dim=7, action_dim=2, seed=int(seed or 0))
+	else:
+		raise ValueError(f"Unknown algo '{algo}'. Use ppo, ddpg, or td3.")
+	agent.load(model_path)  # type: ignore[attr-defined]
+
+	base_seed = int(seed or 0)
+	runs_per_n = int(episodes)
+	for n_particles in range(int(swarm_size_low), int(swarm_size_high)):
+		for run_idx in range(runs_per_n):
+			# SPSO uses global numpy RNG; seed it per-run for repeatability.
+			# (and so standard and RL runs share the same initial boundary placement).
+			ep_seed = base_seed + (n_particles * 10_000) + run_idx
+			np.random.seed(ep_seed)
+
+			# --- Standard SPSO run ---
+			spso = SPSO(
+				n_particles=int(n_particles),
+				side_length=float(cfg.side_length),
+				omega=float(cfg.omega),
+				c1=float(cfg.c1_init),
+				c2=float(cfg.c2_init),
+				T=1.0,
+				speed=float(cfg.speed),
+			)
+			t, it_used, swarm_dist = spso.run(max_iterations=int(cfg.max_iter))
+			std_times_by_n[n_particles].append(float(t))
+			std_iters_by_n[n_particles].append(float(it_used))
+			std_swarm_dists_by_n[n_particles].append(float(swarm_dist))
+
+			# --- RL-enhanced SPSO run ---
+			np.random.seed(ep_seed)
+			state = env.reset(n_particles=int(n_particles))
+			info: Dict = {}
+			for _ in range(int(cfg.max_iter)):
+				if algo == "ppo":
+					action, _lp = agent.select_action(state)  # type: ignore[attr-defined]
+				else:
+					action = agent.select_action(state, noise=False)  # type: ignore[attr-defined]
+				state, _r, done, info = env.step(action)
+				if done:
+					break
+
+			assert env.spso is not None
+			swarm_distance = float(sum(p.dist_travelled for p in env.spso.particles))
+			found = bool(info.get("found", False))
+			if found:
+				finder = min(env.spso.particles, key=lambda p: np.linalg.norm(p.position - env.spso.source))
+				time_to_find = float(finder.dist_travelled) / max(1e-9, float(cfg.speed))
+			else:
+				time_to_find = swarm_distance / max(1e-9, float(cfg.speed))
+
+			rl_times_by_n[n_particles].append(float(time_to_find))
+			rl_iters_by_n[n_particles].append(float(env.current_iter))
+			rl_swarm_dists_by_n[n_particles].append(float(swarm_distance))
+
+	def _mean_std(x: list[float]) -> tuple[float, float]:
+		if not x:
+			return float("nan"), float("nan")
+		arr = np.asarray(x, dtype=float)
+		mean = float(np.mean(arr))
+		std = float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0
+		return mean, std
+
+	results: Dict[str, float] = {
+		"runs_per_n": int(runs_per_n),
+		"swarm_size_low": int(swarm_size_low),
+		"swarm_size_high": int(swarm_size_high),
+	}
+
+	print(
+		"[compare] "
+		f"algo={algo} runs_per_n={runs_per_n} swarm_size=[{int(swarm_size_low)}..{int(swarm_size_high)-1}] max_iter={cfg.max_iter}"
+	)
+	print(
+		"N | standard: time(mean±std) iters(mean±std) dist(mean±std) || rl: time(mean±std) iters(mean±std) dist(mean±std)"
+	)
+	for n in range(int(swarm_size_low), int(swarm_size_high)):
+		std_mt, std_st = _mean_std(std_times_by_n[n])
+		std_mi, std_si = _mean_std(std_iters_by_n[n])
+		std_md, std_sd = _mean_std(std_swarm_dists_by_n[n])
+		rl_mt, rl_st = _mean_std(rl_times_by_n[n])
+		rl_mi, rl_si = _mean_std(rl_iters_by_n[n])
+		rl_md, rl_sd = _mean_std(rl_swarm_dists_by_n[n])
+
+		# Store per-N summary in flat dict (easy to save as JSON/CSV later)
+		results[f"N{n}_std_mean_time"] = std_mt
+		results[f"N{n}_std_std_time"] = std_st
+		results[f"N{n}_std_mean_iters"] = std_mi
+		results[f"N{n}_std_std_iters"] = std_si
+		results[f"N{n}_std_mean_swarm_dist"] = std_md
+		results[f"N{n}_std_std_swarm_dist"] = std_sd
+		results[f"N{n}_rl_mean_time"] = rl_mt
+		results[f"N{n}_rl_std_time"] = rl_st
+		results[f"N{n}_rl_mean_iters"] = rl_mi
+		results[f"N{n}_rl_std_iters"] = rl_si
+		results[f"N{n}_rl_mean_swarm_dist"] = rl_md
+		results[f"N{n}_rl_std_swarm_dist"] = rl_sd
+
+		print(
+			f"{n:2d} | "
+			f"std: {std_mt:7.3f}±{std_st:6.3f}  {std_mi:7.2f}±{std_si:6.2f}  {std_md:9.3f}±{std_sd:8.3f} || "
+			f"rl: {rl_mt:7.3f}±{rl_st:6.3f}  {rl_mi:7.2f}±{rl_si:6.2f}  {rl_md:9.3f}±{rl_sd:8.3f}"
+		)
+
+	return results
+
+
 class ReplayBuffer:
 	def __init__(self, state_dim: int, action_dim: int, capacity: int, seed: int = 0):
 		self.capacity = int(capacity)
@@ -283,7 +437,7 @@ class TD3Agent:
 
 
 @dataclass
-class RLSPOSOConfig:
+class RLSPSOConfig:
 	side_length: float = 100.0
 	n_particles: int = 10
 	max_iter: int = 300
@@ -311,10 +465,10 @@ class RLSPOSOConfig:
 	reward_clip: float = 200.0
 
 
-class RLSPOSOEnv:
+class RLSPSOEnv:
 	"""Environment wrapper around `SPSO` where the agent controls (c1, c2)."""
 
-	def __init__(self, cfg: RLSPOSOConfig, seed: int | None = None):
+	def __init__(self, cfg: RLSPSOConfig, seed: int | None = None):
 		self.cfg = cfg
 		self.rng = np.random.default_rng(seed)
 
@@ -496,8 +650,8 @@ class RLSPOSOEnv:
 		return self._get_state(), reward_norm, done, info
 
 
-def train(cfg: RLSPOSOConfig, episodes: int, model_path: str, seed: int | None = 0, algo: str = "ppo") -> None:
-	env = RLSPOSOEnv(cfg, seed=seed)
+def train(cfg: RLSPSOConfig, episodes: int, model_path: str, seed: int | None = 0, algo: str = "ppo") -> None:
+	env = RLSPSOEnv(cfg, seed=seed)
 
 	state_dim = 7
 	action_dim = 2
@@ -566,8 +720,8 @@ def train(cfg: RLSPOSOConfig, episodes: int, model_path: str, seed: int | None =
 	print(f"[train] done, saved -> {model_path}")
 
 
-def evaluate(cfg: RLSPOSOConfig, model_path: str, episodes: int = 30, seed: int | None = 1, algo: str = "ppo") -> None:
-	env = RLSPOSOEnv(cfg, seed=seed)
+def evaluate(cfg: RLSPSOConfig, model_path: str, episodes: int = 30, seed: int | None = 1, algo: str = "ppo") -> None:
+	env = RLSPSOEnv(cfg, seed=seed)
 	algo = algo.lower()
 	if algo == "ppo":
 		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=1e-4)
@@ -613,7 +767,9 @@ def parse_args() -> argparse.Namespace:
 	p.add_argument("--algo", type=str, default="ppo", choices=["ppo", "ddpg", "td3"], help="RL algorithm to use")
 	p.add_argument("--train", action="store_true", help="Train PPO to control SPSO c1/c2")
 	p.add_argument("--eval", action="store_true", help="Evaluate a trained PPO controller")
+	p.add_argument("--compare", action="store_true", help="Compare standard SPSO vs RL-enhanced SPSO")
 	p.add_argument("--episodes", type=int, default=12000)
+	p.add_argument("--compare-episodes", type=int, default=100, help="Number of runs per N for --compare")
 	p.add_argument("--max-iter", type=int, default=300)
 	p.add_argument("--n-particles", type=int, default=10)
 	p.add_argument("--side-length", type=float, default=100.0)
@@ -624,19 +780,28 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
 	args = parse_args()
-	cfg = RLSPOSOConfig(
+	cfg = RLSPSOConfig(
 		side_length=float(args.side_length),
 		n_particles=int(args.n_particles),
 		max_iter=int(args.max_iter),
 	)
 
-	if args.train == args.eval:
-		raise SystemExit("Pass exactly one of --train or --eval")
+	mode_count = int(bool(args.train)) + int(bool(args.eval)) + int(bool(args.compare))
+	if mode_count != 1:
+		raise SystemExit("Pass exactly one of --train, --eval, or --compare")
 
 	if args.train:
 		train(cfg=cfg, episodes=int(args.episodes), model_path=str(args.model_path), seed=int(args.seed), algo=str(args.algo))
-	else:
+	elif args.eval:
 		evaluate(cfg=cfg, model_path=str(args.model_path), episodes=max(1, int(args.episodes) // 10), seed=int(args.seed), algo=str(args.algo))
+	else:
+		compare_standard_vs_rl(
+			cfg=cfg,
+			model_path=str(args.model_path),
+			episodes=int(args.compare_episodes),
+			seed=int(args.seed),
+			algo=str(args.algo),
+		)
 
 
 if __name__ == "__main__":
