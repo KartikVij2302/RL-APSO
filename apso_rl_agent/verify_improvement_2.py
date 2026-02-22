@@ -1,6 +1,6 @@
 import numpy as np
 import random
-from apso import APSO_SourceSeeker
+from rl_apso import APSO_SourceSeeker
 from PPO import PPOAgent
 from rl_apso_error_term_approach import RLAPSOEnvErrorOnly  # <-- your new env file
 import matplotlib.pyplot as plt

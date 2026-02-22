@@ -107,9 +107,6 @@ def evaluate_rl_apso_on_function(
 
         for it in range(max_iter):
             # Construct state in the same format used during training
-            dists = [np.linalg.norm(p.x - apso.gbest_x) for p in apso.particles]
-            diversity = np.mean(dists) if dists else 0.0
-
             current_signal = -apso.gbest_value
             signal_change = current_signal - prev_signal
 
@@ -121,9 +118,11 @@ def evaluate_rl_apso_on_function(
             c1 = getattr(apso, "c1", 1.0)
             c2 = getattr(apso, "c2", 1.0)
 
+            num_particles_n = (num_particles - 5.0) / 25.0
+            # maps 5->0, 30->1
+
             state = np.array(
                 [
-                    diversity,
                     signal_change,
                     time_left,
                     avg_vel,
@@ -131,6 +130,7 @@ def evaluate_rl_apso_on_function(
                     np.clip(w2 / 2.0, -1.0, 1.0),
                     np.clip(c1 / 5.0, 0.0, 1.0),
                     np.clip(c2 / 5.0, 0.0, 1.0),
+                    num_particles_n,
                 ],
                 dtype=np.float32,
             )

@@ -11,8 +11,8 @@ SEED = 42
 np.random.seed(SEED)
 
 # Import your modules
-from apso import APSO_SourceSeeker, validate_apso_params
-from PPO import PPOAgent
+from .apso import APSO_SourceSeeker, validate_apso_params
+from .PPO import PPOAgent
 
 # ---------------------------------------------------------
 # 1. Helper to calculate State (Must match your Training Env)
@@ -21,24 +21,21 @@ def get_rl_state(apso_instance, prev_signal, current_iter, max_iter,num_particle
     """
     State vector MUST match what the policy was trained on.
     We include:
-      - diversity
       - signal_change
-      - normalized iteration
+            - normalized time left
       - normalized apso params (w1,w2,c1,c2)
-    => 9-dimensional state (float32)
+            - normalized swarm size (num_particles)
+        => 8-dimensional state (float32)
     """
-    # 1. Swarm Diversity
-    dists = [np.linalg.norm(p.x - apso_instance.gbest_x) for p in apso_instance.particles]
-    diversity = np.mean(dists) if dists else 0.0
-
-    # 2. Signal Change
+        # 1. Signal Change
     current_signal = apso_instance.gbest_signal
     signal_change = current_signal - prev_signal
 
-    # 3. Normalized Time
-    norm_iter = current_iter / max(1, max_iter)
+        # 2. Normalized Time Left (match training env)
+    time_left = 1.0 - (current_iter / max(1, max_iter))
     avg_vel = np.mean([np.linalg.norm(p.v) for p in apso_instance.particles])
-    # 4. APSO params (normalized)
+
+        # 3. APSO params (normalized)
     w1 = getattr(apso_instance, "w1", 0.0)
     w2 = getattr(apso_instance, "w2", 0.0)
     c1 = getattr(apso_instance, "c1", 1.0)
@@ -50,7 +47,19 @@ def get_rl_state(apso_instance, prev_signal, current_iter, max_iter,num_particle
     c1_n = np.clip(c1 / 5.0, 0.0, 1.0)    # c1 in [0,5]
     c2_n = np.clip(c2 / 5.0, 0.0, 1.0)    # c2 in [0,5]
 
-    state = np.array([diversity, signal_change, norm_iter,avg_vel, w1_n, w2_n, c1_n, c2_n,float(num_particles)], dtype=np.float32)
+    num_particles_n = (float(num_particles) - 5.0) / 25.0
+    # maps 5->0, 30->1
+
+    state = np.array([
+        signal_change,
+        time_left,
+        avg_vel,
+        w1_n,
+        w2_n,
+        c1_n,
+        c2_n,
+        num_particles_n,
+    ], dtype=np.float32)
     return state
 
 # ---------------------------------------------------------
@@ -83,27 +92,26 @@ def map_action_to_params(apso_instance, action):
 # 2. The RL-Guided Loop (evaluation)
 # ---------------------------------------------------------
 def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=None):
-    """
-    Runs APSO but asks the RL Agent for parameters (w1,w2,c1,c2) every step.
-    Deterministic evaluation: we try to request deterministic action if the agent supports it.
-    """
+
     results = {
         "run": [], "Ts": [], "I": [], "SD": [], "Success": [], "time_elapsed": []
     }
 
-    # Configuration (Same as your training)
     lo = np.array([0.0, 0.0])
     hi = np.array([100.0, 100.0])
     if source is None:
         source = np.array([50.0, 50.0])
 
+    UAV_SPEED = 10.0
+
     for r in range(n_runs):
         start_time = time.time()
-        # Initialize APSO (physics)
+
         apso = APSO_SourceSeeker(
-            objective=lambda x: 0.0, bounds=(lo, hi), source_pos=source,
+            objective=lambda x: 0.0,
+            bounds=(lo, hi),
+            source_pos=source,
             num_particles=num_particles,
-            # initial placeholders (policy will overwrite immediately on first step)
             w1=0.675, w2=-0.285, c1=1.193, c2=1.193,
             S_s=1.0, alpha=0.01, termination_dist=0.1
         )
@@ -112,56 +120,46 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
         found = False
         iteration = 0
 
-        # track total distance moved by particles (assumes particles have dist_travelled attr)
-        for t in range(max_iter):
-            state = get_rl_state(apso, prev_signal, t, max_iter,num_particles)
+        total_mission_time = 0.0   # accumulate time properly
 
-            # get deterministic action if possible
+        for t in range(max_iter):
+
+            state = get_rl_state(apso, prev_signal, t, max_iter, num_particles)
+
             try:
                 action, _ = agent.select_action(state, deterministic=True)
             except TypeError:
-                # agent.select_action may not accept deterministic arg
                 action, _ = agent.select_action(state)
-            except Exception:
-                # fallback: try without logprob
-                try:
-                    action = agent.select_action(state)
-                    if isinstance(action, tuple):
-                        action = action[0]
-                except Exception as e:
-                    print(f"[Warning] agent.select_action failed: {e}. Using zeros action.")
-                    action = np.zeros(4, dtype=np.float32)
 
-            # decode action into APSO params (same mapping as training env)
             w1, w2, c1, c2 = map_action_to_params(apso, action)
-
-            # clamp/validate to safe ranges
-            # c1 = max(0.01, c1)
-            # c2 = max(0.01, c2)
 
             try:
                 validate_apso_params(w1, w2, c1, c2, getattr(apso, "T", 1.0))
-                valid = True
             except Exception:
-                valid = False
-
-            if not valid:
-                # if invalid, apply small perturbation towards safe defaults (safety)
                 w1, w2, c1, c2 = 0.675, -0.285, 1.193, 1.193
 
-            # apply params for next APSO iteration
             apso.w1 = w1
             apso.w2 = w2
             apso.c1 = c1
             apso.c2 = c2
 
-            # Step physics
-            try:
-                found, min_dist = apso.step()
-            except Exception as e:
-                print(f"[Warning] apso.step() error: {e}")
-                found = False
-                min_dist = np.inf
+            # ---- STORE PREVIOUS POSITIONS ----
+            prev_pos_matrix = np.array([p.x.copy() for p in apso.particles])
+
+            # ---- STEP PHYSICS ----
+            found, min_dist = apso.step()
+
+            # ---- COMPUTE MEAN STEP DISTANCE ----
+            curr_pos_matrix = np.array([p.x for p in apso.particles])
+            per_particle_step_dist = np.linalg.norm(
+                curr_pos_matrix - prev_pos_matrix, axis=1
+            )
+
+            mean_step_distance = float(np.mean(per_particle_step_dist))
+
+            # convert to time for this step
+            step_time = mean_step_distance / UAV_SPEED
+            total_mission_time += step_time
 
             prev_signal = apso.gbest_signal
             iteration += 1
@@ -169,24 +167,11 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
             if found:
                 break
 
-        # Calculate run metrics
-        # total swarm distance (if your particle objects track dist_travelled)
-        total_sd = 0.0
-        try:
-            total_sd = sum(getattr(p, "dist_travelled", 0.0) for p in apso.particles)
-        except Exception:
-            total_sd = 0.0
+        # ---- Total swarm distance ----
+        total_sd = sum(getattr(p, "dist_travelled", 0.0) for p in apso.particles)
 
-        # Time: use travel of finder particle / assumed speed, else penalty
-        speed = 10.0
-        if found:
-            try:
-                finder = min(apso.particles, key=lambda p: np.linalg.norm(p.x - source))
-                time_s = getattr(finder, "dist_travelled", max_iter) / speed
-            except Exception:
-                time_s = 0.0
-        else:
-            time_s = float(max_iter)
+        # ---- Source seeking time ----
+        time_s = total_mission_time
 
         elapsed = time.time() - start_time
 
@@ -227,15 +212,16 @@ def run_fixed_baseline(n_runs=50, max_iter=500, num_particles=20, source=None):
                 break
 
         total_sd = sum(getattr(p, "dist_travelled", 0.0) for p in apso.particles)
+        # Time metric (match APSO_SourceSeeker.run_single)
         speed = 10.0
         if found:
             try:
                 finder = min(apso.particles, key=lambda p: np.linalg.norm(p.x - source))
-                time_s = getattr(finder, "dist_travelled", 0.0) / speed
+                time_s = float(getattr(finder, "dist_travelled", 0.0)) / speed
             except Exception:
                 time_s = 0.0
         else:
-            time_s = float(max_iter)
+            time_s = float(total_sd) / speed
 
         results["Ts"].append(time_s)
         results["I"].append(t+1)
@@ -252,7 +238,7 @@ if __name__ == "__main__":
     random.seed(SEED)
     torch.manual_seed(SEED)
 
-    state_dim = 9
+    state_dim = 8
     action_dim = 4
     agent = PPOAgent(state_dim, action_dim, lr=0.0003)
 
@@ -267,7 +253,7 @@ if __name__ == "__main__":
     if model_choice == "fixed":
         model_path = "apso_rl_agent/models/latest_ppo_apso_fixed_source_4.pth"
     else:
-        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_4.pth"
+        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_5.pth"
 
     print(f"[Info] Using '{model_choice}' model from {model_path}")
     try:
@@ -285,8 +271,8 @@ if __name__ == "__main__":
         print(f"[Warning] Failed to load agent from {model_path}: {e}. Proceeding with fresh agent (not ideal).")
 
     # Evaluation configuration (FIXED grid + FIXED source, VARIABLE swarm size)
-    N_RUNS = 100
-    MAX_ITER = 300
+    N_RUNS = 1000
+    MAX_ITER = 400
 
     lo = np.array([0.0, 0.0])
     hi = np.array([100.0, 100.0])
@@ -298,6 +284,10 @@ if __name__ == "__main__":
     rows = []
     mean_Ts_fixed = []
     mean_Ts_rl = []
+    mean_I_fixed = []
+    mean_I_rl = []
+    mean_SD_fixed = []
+    mean_SD_rl = []
 
     print("\n--- Fixed grid (100x100) & fixed source (50,50): swarm-size sweep ---")
     for n_particles in swarm_sizes:
@@ -340,6 +330,10 @@ if __name__ == "__main__":
 
         mean_Ts_fixed.append(float(np.mean(base_res["Ts"])))
         mean_Ts_rl.append(float(np.mean(rl_res["Ts"])))
+        mean_I_fixed.append(float(np.mean(base_res["I"])))
+        mean_I_rl.append(float(np.mean(rl_res["I"])))
+        mean_SD_fixed.append(float(np.mean(base_res["SD"])))
+        mean_SD_rl.append(float(np.mean(rl_res["SD"])))
 
     out_csv = "rl_vs_fixed_fixedsource_swarm_sweep.csv"
     pd.DataFrame(rows).to_csv(out_csv, index=False)
@@ -356,6 +350,30 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig("fixedsource_Ts_vs_swarm_size.png", dpi=300)
     print("[Info] Saved plot to fixedsource_Ts_vs_swarm_size.png")
+
+    plt.figure(figsize=(7, 5))
+    plt.plot(swarm_sizes, mean_I_fixed, "o-", label="Fixed APSO")
+    plt.plot(swarm_sizes, mean_I_rl, "s-", label="RL-Guided APSO")
+    plt.xlabel("Swarm size (n_particles)")
+    plt.ylabel("Mean iterations I")
+    plt.title("Fixed grid & fixed source: I vs swarm size")
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("fixedsource_I_vs_swarm_size.png", dpi=300)
+    print("[Info] Saved plot to fixedsource_I_vs_swarm_size.png")
+
+    plt.figure(figsize=(7, 5))
+    plt.plot(swarm_sizes, mean_SD_fixed, "o-", label="Fixed APSO")
+    plt.plot(swarm_sizes, mean_SD_rl, "s-", label="RL-Guided APSO")
+    plt.xlabel("Swarm size (n_particles)")
+    plt.ylabel("Mean swarm distance SD")
+    plt.title("Fixed grid & fixed source: SD vs swarm size")
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("fixedsource_SD_vs_swarm_size.png", dpi=300)
+    print("[Info] Saved plot to fixedsource_SD_vs_swarm_size.png")
 
     # G. Reward component analysis (from training)
     # Loads mean reward terms that were logged during RL-APSO training

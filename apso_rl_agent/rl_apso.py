@@ -1,4 +1,4 @@
-from apso_rl_agent.apso import APSO_SourceSeeker, validate_apso_params
+from .apso import APSO_SourceSeeker, validate_apso_params
 import numpy as np
 
 class RLAPSOEnv:
@@ -84,32 +84,36 @@ class RLAPSOEnv:
         }
 
     def _get_state(self):
-        # 8-Dim State: [Diversity, SigChange, TimeLeft, AvgVel, w1, w2, c1, c2]
-        
-        # 1. Diversity
-        dists = [np.linalg.norm(p.x - self.apso.gbest_x) for p in self.apso.particles]
-        diversity = np.mean(dists) if dists else 0.0
-        
-        # 2. Signal Change
+        # 8-Dim State: [SigChange, TimeLeft, AvgVel, w1, w2, c1, c2, num_particles]
+
+        # 1. Signal Change
         current_signal = getattr(self.apso, 'gbest_signal', 0.0)
         signal_change = current_signal - self.prev_signal
         
-        # 3. Time Remaining (Normalized 1.0 -> 0.0)
+        # 2. Time Remaining (Normalized 1.0 -> 0.0)
         time_left = 1.0 - (self.current_iter / self.max_iter)
         
-        # 4. Average Velocity (Crucial for sensing "Energy")
+        # 3. Average Velocity (Crucial for sensing "Energy")
         avg_vel = np.mean([np.linalg.norm(p.v) for p in self.apso.particles])
         
-        # 5-8. Current Params (Normalized)
+        # 4-7. Current Params (Normalized)
         w1 = getattr(self.apso, 'w1', 0.0)
         w2 = getattr(self.apso, 'w2', 0.0)
         c1 = getattr(self.apso, 'c1', 1.0)
         c2 = getattr(self.apso, 'c2', 1.0)
+
+        num_particles_n = (self.num_particles - 5.0) / 25.0
+        # maps 5->0, 30->1
         
         state = np.array([
-            diversity, signal_change, time_left, avg_vel,
-            np.clip(w1/2, -1, 1), np.clip(w2/2, -1, 1), 
-            np.clip(c1/5, 0, 1), np.clip(c2/5, 0, 1)
+            signal_change,
+            time_left,
+            avg_vel,
+            np.clip(w1/2, -1, 1),
+            np.clip(w2/2, -1, 1),
+            np.clip(c1/5, 0, 1),
+            np.clip(c2/5, 0, 1),
+            num_particles_n,
         ], dtype=np.float32)
         
         return state

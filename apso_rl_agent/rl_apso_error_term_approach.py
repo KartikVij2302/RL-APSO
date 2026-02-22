@@ -83,35 +83,34 @@ class RLAPSOEnvErrorOnly:
     # State (NO normalization of w1,w2,c1,c2)
     # -------------------------------------------------
     def _get_state(self):
-        # 1. Swarm diversity
-        dists = [np.linalg.norm(p.x - self.apso.gbest_x) for p in self.apso.particles]
-        diversity = np.mean(dists) if dists else 0.0
-
-        # 2. Signal change
+        # 1. Signal change
         current_signal = getattr(self.apso, "gbest_signal", 0.0)
         signal_change = current_signal - self.prev_signal
 
-        # 3. Normalized time
+        # 2. Normalized time
         time_left = 1.0 - self.current_iter / self.max_iter
 
-        # 4. Average velocity
+        # 3. Average velocity
         avg_vel = np.mean([np.linalg.norm(p.v) for p in self.apso.particles])
 
-        # 5–8. RAW APSO parameters (no scaling)
+        # 4–7. RAW APSO parameters (no scaling)
         w1 = self.apso.w1
         w2 = self.apso.w2
         c1 = self.apso.c1
         c2 = self.apso.c2
 
+        num_particles_n = (self.num_particles - 5.0) / 25.0
+        # maps 5->0, 30->1
+
         return np.array([
-            diversity,
             signal_change,
             time_left,
             avg_vel,
             w1,
             w2,
             c1,
-            c2
+            c2,
+            num_particles_n,
         ], dtype=np.float32)
 
     # -------------------------------------------------
