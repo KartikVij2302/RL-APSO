@@ -175,9 +175,9 @@ class RLAPSOEnv:
         # the constant waypoint speed v = 10 m/s.
         UAV_SPEED = 10.0
         # --- compute step_dist and mean_step_dist (you already have this)
-        step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
-        mean_step_dist = step_dist / self.num_particles
-        step_time = mean_step_dist / UAV_SPEED   # per-UAV average time per step
+        # step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
+        # mean_step_dist = step_dist / self.num_particles
+        # step_time = mean_step_dist / UAV_SPEED   # per-UAV average time per step
 
         # Normalize min_dist by an environment scale if available (map diagonal)
         map_diag = getattr(self, "map_diag", 100.0)   # set map_diag on reset() if you randomize map size
@@ -186,14 +186,14 @@ class RLAPSOEnv:
         alpha_time = 20.0      # start smaller than 200
         lambda_time = 1.0      # controls sharpness
 
-        time_cost_term = -alpha_time * (np.exp(lambda_time * step_time) - 1.0)
+        # time_cost_term = -alpha_time * (np.exp(lambda_time * step_time) - 1.0)
 
 
         # Iteration penalty: keep but moderate
         beta_iter = 1.0
         frac = self.current_iter / max(1, self.max_iter)
         iteration_term = -beta_iter * np.exp(frac)
-
+        time_penalty = -10.0
         # Proximity: normalize by map scale, and increase weight so it matters more
         gamma_close = 10.0
         proximity_term = gamma_close * np.exp(-1.0 * min_dist_norm)  # tuned so value decays across map scale
@@ -201,12 +201,12 @@ class RLAPSOEnv:
         # Keep invalid param penalty modest
         invalid_param_penalty = invalid_param_penalty  # as computed before (-8 if invalid)
 
-        reward = time_cost_term + iteration_term + proximity_term + invalid_param_penalty
+        reward = time_penalty + iteration_term + proximity_term + invalid_param_penalty
         success_term  = 0.0
         timeout_term = 0.0
         done = False
         if found:
-            success_term = 300.0
+            success_term = 500.0
             reward += success_term
             done = True
          
@@ -219,7 +219,7 @@ class RLAPSOEnv:
             reward += timeout_term
 
         # Log individual reward components for analysis
-        self.step_time_cost_terms.append(time_cost_term)
+        self.step_time_cost_terms.append(time_penalty)
         self.iteration_penalty_terms.append(iteration_term)
         self.proximity_bonus_terms.append(proximity_term)
         self.success_bonus_terms.append(success_term)

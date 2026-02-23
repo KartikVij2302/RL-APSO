@@ -51,7 +51,7 @@ def run_rl_apso_training_random_particles():
     lr = 3e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
-    num_episodes = 12000
+    num_episodes = 10000
     rewards_history = []
 
     print(f"Starting RL-APSO Training with random swarm sizes for {num_episodes} episodes...")
