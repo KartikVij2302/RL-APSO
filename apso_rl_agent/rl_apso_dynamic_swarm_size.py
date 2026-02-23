@@ -1,4 +1,4 @@
-from .apso import APSO_SourceSeeker, validate_apso_params
+from apso import APSO_SourceSeeker, validate_apso_params
 import numpy as np
 
 class RLAPSOEnv:

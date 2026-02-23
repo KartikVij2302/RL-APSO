@@ -11,8 +11,8 @@ SEED = 42
 np.random.seed(SEED)
 
 # Import your modules
-from .apso import APSO_SourceSeeker, validate_apso_params
-from .PPO import PPOAgent
+from apso import APSO_SourceSeeker, validate_apso_params
+from PPO import PPOAgent
 
 # ---------------------------------------------------------
 # 1. Helper to calculate State (Must match your Training Env)
@@ -102,7 +102,7 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
     if source is None:
         source = np.array([50.0, 50.0])
 
-    UAV_SPEED = 10.0
+    speed = 10.0
 
     for r in range(n_runs):
         start_time = time.time()
@@ -119,8 +119,6 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
         prev_signal = apso.gbest_signal
         found = False
         iteration = 0
-
-        total_mission_time = 0.0   # accumulate time properly
 
         for t in range(max_iter):
 
@@ -143,23 +141,8 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
             apso.c1 = c1
             apso.c2 = c2
 
-            # ---- STORE PREVIOUS POSITIONS ----
-            prev_pos_matrix = np.array([p.x.copy() for p in apso.particles])
-
             # ---- STEP PHYSICS ----
             found, min_dist = apso.step()
-
-            # ---- COMPUTE MEAN STEP DISTANCE ----
-            curr_pos_matrix = np.array([p.x for p in apso.particles])
-            per_particle_step_dist = np.linalg.norm(
-                curr_pos_matrix - prev_pos_matrix, axis=1
-            )
-
-            mean_step_distance = float(np.mean(per_particle_step_dist))
-
-            # convert to time for this step
-            step_time = mean_step_distance / UAV_SPEED
-            total_mission_time += step_time
 
             prev_signal = apso.gbest_signal
             iteration += 1
@@ -170,8 +153,15 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
         # ---- Total swarm distance ----
         total_sd = sum(getattr(p, "dist_travelled", 0.0) for p in apso.particles)
 
-        # ---- Source seeking time ----
-        time_s = total_mission_time
+        # ---- Source seeking time (match run_fixed_baseline) ----
+        if found:
+            try:
+                finder = min(apso.particles, key=lambda p: np.linalg.norm(p.x - source))
+                time_s = float(getattr(finder, "dist_travelled", 0.0)) / speed
+            except Exception:
+                time_s = 0.0
+        else:
+            time_s = float(total_sd) / speed
 
         elapsed = time.time() - start_time
 

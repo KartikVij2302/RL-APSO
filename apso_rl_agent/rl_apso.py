@@ -155,7 +155,7 @@ class RLAPSOEnv:
             # Mark action as invalid and add a modest penalty; APSO continues
             # with its previous stable parameters so exploration isn't overly discouraged.
             valid_params = False
-            invalid_param_penalty = -8.0
+            invalid_param_penalty = -80.0
         # --- 2. RUN PHYSICS ---
         prev_pos_matrix = np.array([p.x.copy() for p in self.apso.particles])
         try:
@@ -181,7 +181,7 @@ class RLAPSOEnv:
 
         # A. Time cost term (log-shaped): larger per-step times get more penalty,
         #    but the increase is sublinear (diminishing returns).
-        alpha_time = 15.0
+        alpha_time = 30.0
         time_cost_term = -alpha_time * np.log1p(step_time)   # log(1 + step_time)
 
         # B. Iteration penalty (exp-shaped): later iterations incur higher cost
@@ -193,8 +193,8 @@ class RLAPSOEnv:
         # C. Proximity bonus (exp-shaped): reward increases as the swarm's
         #    closest UAV approaches the source (smaller min_dist).
         #    Use the min_dist returned from APSO step.
-        gamma_close = 1.15
-        proximity_term = gamma_close * np.exp(-0.1 * min_dist)
+        gamma_close = 1.00
+        proximity_term = -gamma_close * np.exp(0.05 * min_dist)
 
         # D. Success Bonus / Timeout Penalty (only at terminal steps)
         success_term = 0.0
