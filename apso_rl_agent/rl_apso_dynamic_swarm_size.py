@@ -164,44 +164,22 @@ class RLAPSOEnv:
             min_dist = 1000.0
 
         # --- 3. CALCULATE REWARD ---
-        # Reward is designed to directly encode the two objectives:
-        # (1) minimise physical source seeking time, approximated via
-        #     per-step travel distance at constant UAV speed;
-        # (2) minimise the number of iterations until detection.
-
-        # Sum distance moved by all particles this step
+        # 1. Increasing Time Penalty (Forces mu(I) and mu(Ts) down)
         curr_pos_matrix = np.array([p.x for p in self.apso.particles])
-        # Convert to an average per-UAV distance and then to time using
-        # the constant waypoint speed v = 10 m/s.
-        UAV_SPEED = 10.0
-        # --- compute step_dist and mean_step_dist (you already have this)
-        # step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
-        # mean_step_dist = step_dist / self.num_particles
-        # step_time = mean_step_dist / UAV_SPEED   # per-UAV average time per step
+        time_penalty = -10.0 * np.exp(self.current_iter / self.max_iter)
+        step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
+        # 2. Movement Efficiency (Forces mu(SD) down)
+        fuel_penalty = -0.02 * step_dist
 
-        # Normalize min_dist by an environment scale if available (map diagonal)
-        map_diag = getattr(self, "map_diag", 100.0)   # set map_diag on reset() if you randomize map size
-        min_dist_norm = min_dist / (map_diag + 1e-6)
+        # 3. Directional Progress (Encourages faster convergence)
+        # Reward for the actual reduction in distance to source
+        dist_delta = self.prev_gbest_dist - min_dist
+        progress_reward = 50.0 * max(0, dist_delta) 
 
-        alpha_time = 20.0      # start smaller than 200
-        lambda_time = 1.0      # controls sharpness
+        # 4. Success Bonus (Needs to be the dominant signal)
+        success_bonus = 1000.0 if found else 0.0
 
-        # time_cost_term = -alpha_time * (np.exp(lambda_time * step_time) - 1.0)
-
-
-        # Iteration penalty: keep but moderate
-        beta_iter = 1.0
-        frac = self.current_iter / max(1, self.max_iter)
-        iteration_term = -beta_iter * np.exp(frac)
-        time_penalty = -10.0
-        # Proximity: normalize by map scale, and increase weight so it matters more
-        gamma_close = 10.0
-        proximity_term = gamma_close * np.exp(-1.0 * min_dist_norm)  # tuned so value decays across map scale
-
-        # Keep invalid param penalty modest
-        invalid_param_penalty = invalid_param_penalty  # as computed before (-8 if invalid)
-
-        reward = time_penalty + iteration_term + proximity_term + invalid_param_penalty
+        reward = time_penalty + fuel_penalty + progress_reward + success_bonus + invalid_param_penalty
         success_term  = 0.0
         timeout_term = 0.0
         done = False
@@ -217,7 +195,13 @@ class RLAPSOEnv:
             done = True
             timeout_term = -20.0  # Timeout penalty
             reward += timeout_term
-
+        beta_iter = 1.0
+        frac = self.current_iter / max(1, self.max_iter)
+        iteration_term = -beta_iter * np.exp(frac)
+        gamma_close = 10.0
+        map_diag = getattr(self, "map_diag", 100.0)   # set map_diag on reset() if you randomize map size
+        min_dist_norm = min_dist / (map_diag + 1e-6)
+        proximity_term = gamma_close * np.exp(-1.0 * min_dist_norm)
         # Log individual reward components for analysis
         self.step_time_cost_terms.append(time_penalty)
         self.iteration_penalty_terms.append(iteration_term)

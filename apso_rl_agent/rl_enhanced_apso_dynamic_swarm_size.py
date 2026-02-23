@@ -51,7 +51,7 @@ def run_rl_apso_training_random_particles():
     lr = 3e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
-    num_episodes = 10000
+    num_episodes = 12000
     rewards_history = []
 
     print(f"Starting RL-APSO Training with random swarm sizes for {num_episodes} episodes...")
@@ -89,8 +89,8 @@ def run_rl_apso_training_random_particles():
             )
 
     # Save model trained with variable swarm sizes
-    agent.save(os.path.join(current_dir, "models/latest_ppo_apso_random_particles_6.pth"))
-    print("Model saved to models/latest_ppo_apso_random_particles_6.pth")
+    agent.save(os.path.join(current_dir, "models/latest_ppo_apso_random_particles_7.pth"))
+    print("Model saved to models/latest_ppo_apso_random_particles_7.pth")
 
 
     try:
