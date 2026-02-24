@@ -69,14 +69,14 @@ class ActorCritic(nn.Module):
         return dist.log_prob(action).sum(dim=-1), state_values, dist.entropy().sum(dim=-1)
 
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, lr=1e-4):
+    def __init__(self, state_dim, action_dim, lr=3e-4):
         self.policy = ActorCritic(state_dim, action_dim)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
         self.policy_old = ActorCritic(state_dim, action_dim)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.buffer = []
-        self.K_epochs = 50
+        self.K_epochs = 15
         self.eps_clip = 0.2
         self.gamma = 0.99
 

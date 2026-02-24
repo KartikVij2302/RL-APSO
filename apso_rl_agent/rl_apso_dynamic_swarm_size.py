@@ -164,22 +164,28 @@ class RLAPSOEnv:
             min_dist = 1000.0
 
         # --- 3. CALCULATE REWARD ---
-        # 1. Increasing Time Penalty (Forces mu(I) and mu(Ts) down)
+        # 1. Base Clock Penalty (PASSIVE)
+        # Higher than before to force faster iterations mu(I)
+        base_clock_penalty = -5.0 
+
+        # 2. Exponential Pressure (ACTIVE)
+        # Becomes the dominant penalty after 50% of max_iter
+        time_pressure = -10.0 * np.exp(2.0 * (self.current_iter / self.max_iter) - 1.0)
         curr_pos_matrix = np.array([p.x for p in self.apso.particles])
-        time_penalty = -10.0 * np.exp(self.current_iter / self.max_iter)
         step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
-        # 2. Movement Efficiency (Forces mu(SD) down)
-        fuel_penalty = -0.02 * step_dist
-
-        # 3. Directional Progress (Encourages faster convergence)
-        # Reward for the actual reduction in distance to source
+        # 3. Aggressive Progress Reward
+        # Directly targets mu(Ts) by rewarding high-speed approach
         dist_delta = self.prev_gbest_dist - min_dist
-        progress_reward = 50.0 * max(0, dist_delta) 
+        progress_reward = 75.0 * dist_delta # Reward meters gained, penalize meters lost
 
-        # 4. Success Bonus (Needs to be the dominant signal)
-        success_bonus = 1000.0 * (1.0 - (self.current_iter / self.max_iter)) if found else 0.0
+        # 4. Efficiency Constraint
+        # Penalize total swarm movement mu(SD) to keep paths straight
+        fuel_penalty = -0.01 * step_dist
 
-        reward = time_penalty + fuel_penalty + progress_reward + success_bonus + invalid_param_penalty
+        # 5. Massive Time-Sensitive Success Payout
+        success_bonus = 1500.0 * np.cos((np.pi / 2) * (self.current_iter / self.max_iter)) if found else 0.0
+
+        reward = base_clock_penalty + time_pressure + progress_reward + fuel_penalty + success_bonus + invalid_param_penalty
         success_term  = 0.0
         timeout_term = 0.0
         done = False
@@ -203,7 +209,7 @@ class RLAPSOEnv:
         min_dist_norm = min_dist / (map_diag + 1e-6)
         proximity_term = gamma_close * np.exp(-1.0 * min_dist_norm)
         # Log individual reward components for analysis
-        self.step_time_cost_terms.append(time_penalty)
+        self.step_time_cost_terms.append(time_pressure)
         self.iteration_penalty_terms.append(iteration_term)
         self.proximity_bonus_terms.append(proximity_term)
         self.success_bonus_terms.append(success_term)
