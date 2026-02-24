@@ -89,8 +89,8 @@ def run_rl_apso_training_random_particles():
             )
 
     # Save model trained with variable swarm sizes
-    agent.save(os.path.join(current_dir, "models/latest_ppo_apso_random_particles_7.pth"))
-    print("Model saved to models/latest_ppo_apso_random_particles_7.pth")
+    agent.save(os.path.join(current_dir, "models/latest_ppo_apso_random_particles_8.pth"))
+    print("Model saved to models/latest_ppo_apso_random_particles_8.pth")
 
 
     try:

@@ -243,7 +243,7 @@ if __name__ == "__main__":
     if model_choice == "fixed":
         model_path = "apso_rl_agent/models/latest_ppo_apso_fixed_source_4.pth"
     else:
-        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_7.pth"
+        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_8.pth"
 
     print(f"[Info] Using '{model_choice}' model from {model_path}")
     try:

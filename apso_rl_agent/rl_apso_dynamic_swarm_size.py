@@ -177,7 +177,7 @@ class RLAPSOEnv:
         progress_reward = 50.0 * max(0, dist_delta) 
 
         # 4. Success Bonus (Needs to be the dominant signal)
-        success_bonus = 1000.0 if found else 0.0
+        success_bonus = 1000.0 * (1.0 - (self.current_iter / self.max_iter)) if found else 0.0
 
         reward = time_penalty + fuel_penalty + progress_reward + success_bonus + invalid_param_penalty
         success_term  = 0.0
