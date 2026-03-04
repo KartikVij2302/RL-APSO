@@ -1,13 +1,14 @@
 from .apso import APSO_SourceSeeker, validate_apso_params
 import numpy as np
 
+
 class RLAPSOEnv:
     def __init__(self, source_pos, bounds, num_particles=10, max_iter=300):
         self.source_pos = np.array(source_pos)
         self.bounds = bounds
         self.num_particles = num_particles
         self.max_iter = max_iter
-        
+
         self.apso = None
         self.current_iter = 0
         self.prev_signal = 0.0
@@ -22,9 +23,11 @@ class RLAPSOEnv:
 
         # Logging buffers for reward components across all training steps
         # (aligned with time-to-source and iteration objectives)
-        self.step_time_cost_terms = []     # negative cost proportional to travel time per step
+        self.step_time_cost_terms = (
+            []
+        )  # negative cost proportional to travel time per step
         self.iteration_penalty_terms = []  # negative cost per iteration
-        self.proximity_bonus_terms = []    # positive reward for being close to source
+        self.proximity_bonus_terms = []  # positive reward for being close to source
         self.success_bonus_terms = []
         self.timeout_penalty_terms = []
 
@@ -59,19 +62,25 @@ class RLAPSOEnv:
             bounds=self.bounds,
             source_pos=self.source_pos,
             num_particles=self.num_particles,
-            w1=0.675, w2=-0.285, c1=1.193, c2=1.193, T=1.0,
-            S_s=1.0, alpha=0.01, termination_dist=0.1
+            w1=0.675,
+            w2=-0.285,
+            c1=1.193,
+            c2=1.193,
+            T=1.0,
+            S_s=1.0,
+            alpha=0.01,
+            termination_dist=0.1,
         )
 
         self.current_iter = 0
-        self.prev_signal = getattr(self.apso, 'gbest_signal', 0.0)
+        self.prev_signal = getattr(self.apso, "gbest_signal", 0.0)
         self.prev_gbest_dist = np.linalg.norm(self.apso.gbest_x - self.source_pos)
 
         return self._get_state()
 
-
     def get_reward_component_means(self):
         """Return mean value of each reward component over all steps seen so far."""
+
         def _mean(arr):
             return float(np.mean(arr)) if arr else 0.0
 
@@ -87,46 +96,49 @@ class RLAPSOEnv:
         # 8-Dim State: [SigChange, TimeLeft, AvgVel, w1, w2, c1, c2, num_particles]
 
         # 1. Signal Change
-        current_signal = getattr(self.apso, 'gbest_signal', 0.0)
+        current_signal = getattr(self.apso, "gbest_signal", 0.0)
         signal_change = current_signal - self.prev_signal
-        
+
         # 2. Time Remaining (Normalized 1.0 -> 0.0)
         time_left = 1.0 - (self.current_iter / self.max_iter)
-        
+
         # 3. Average Velocity (Crucial for sensing "Energy")
         avg_vel = np.mean([np.linalg.norm(p.v) for p in self.apso.particles])
-        
+
         # 4-7. Current Params (Normalized)
-        w1 = getattr(self.apso, 'w1', 0.0)
-        w2 = getattr(self.apso, 'w2', 0.0)
-        c1 = getattr(self.apso, 'c1', 1.0)
-        c2 = getattr(self.apso, 'c2', 1.0)
+        w1 = getattr(self.apso, "w1", 0.0)
+        w2 = getattr(self.apso, "w2", 0.0)
+        c1 = getattr(self.apso, "c1", 1.0)
+        c2 = getattr(self.apso, "c2", 1.0)
 
         num_particles_n = (self.num_particles - 5.0) / 25.0
         # maps 5->0, 30->1
-        
-        state = np.array([
-            signal_change,
-            time_left,
-            avg_vel,
-            np.clip(w1/2, -1, 1),
-            np.clip(w2/2, -1, 1),
-            np.clip(c1/5, 0, 1),
-            np.clip(c2/5, 0, 1),
-            num_particles_n,
-        ], dtype=np.float32)
-        
+
+        state = np.array(
+            [
+                signal_change,
+                time_left,
+                avg_vel,
+                np.clip(w1 / 2, -1, 1),
+                np.clip(w2 / 2, -1, 1),
+                np.clip(c1 / 5, 0, 1),
+                np.clip(c2 / 5, 0, 1),
+                num_particles_n,
+            ],
+            dtype=np.float32,
+        )
+
         return state
 
     def _map_action_to_params(self, action):
-    # action in [-1,1]^4 interpreted as fractional deltas in [-0.2, 0.2]
+        # action in [-1,1]^4 interpreted as fractional deltas in [-0.2, 0.2]
         delta_frac = 0.2
         a = np.clip(action, -1.0, 1.0)
         # compute current params
-        w1_cur = getattr(self.apso, 'w1', 0.675)
-        w2_cur = getattr(self.apso, 'w2', -0.285)
-        c1_cur = getattr(self.apso, 'c1', 1.193)
-        c2_cur = getattr(self.apso, 'c2', 1.193)
+        w1_cur = getattr(self.apso, "w1", 0.675)
+        w2_cur = getattr(self.apso, "w2", -0.285)
+        c1_cur = getattr(self.apso, "c1", 1.193)
+        c2_cur = getattr(self.apso, "c2", 1.193)
 
         w1 = w1_cur * (1.0 + delta_frac * a[0])
         w2 = w2_cur * (1.0 + delta_frac * a[1])
@@ -134,7 +146,6 @@ class RLAPSOEnv:
         c2 = c2_cur * (1.0 + delta_frac * a[3])
 
         return w1, w2, c1, c2
-
 
     def step(self, action):
         # --- 1. APPLY PARAMS WITH STABILITY CHECK ---
@@ -177,18 +188,20 @@ class RLAPSOEnv:
         # the constant waypoint speed v = 10 m/s.
         UAV_SPEED = 10.0
         mean_step_dist = step_dist / self.num_particles
-        step_time = mean_step_dist / UAV_SPEED  # seconds per waypoint move (average UAV)
+        step_time = (
+            mean_step_dist / UAV_SPEED
+        )  # seconds per waypoint move (average UAV)
 
         # A. Time cost term (log-shaped): larger per-step times get more penalty,
         #    but the increase is sublinear (diminishing returns).
         alpha_time = 30.0
-        time_cost_term = -alpha_time * np.log1p(step_time)   # log(1 + step_time)
+        time_cost_term = -alpha_time * np.log1p(step_time)  # log(1 + step_time)
 
         # B. Iteration penalty (exp-shaped): later iterations incur higher cost
         #    than earlier ones.
         beta_iter = 1.25
-        frac = self.current_iter / self.max_iter             # in [0,1]
-        iteration_term = -beta_iter * np.exp(frac)           # in [-e, -1]
+        frac = self.current_iter / self.max_iter  # in [0,1]
+        iteration_term = -beta_iter * np.exp(frac)  # in [-e, -1]
 
         # C. Proximity bonus (exp-shaped): reward increases as the swarm's
         #    closest UAV approaches the source (smaller min_dist).
@@ -200,17 +213,19 @@ class RLAPSOEnv:
         success_term = 0.0
         timeout_term = 0.0
 
-        reward = time_cost_term + iteration_term + proximity_term + invalid_param_penalty
+        reward = (
+            time_cost_term + iteration_term + proximity_term + invalid_param_penalty
+        )
 
         done = False
         if found:
             success_term = 300.0
             reward += success_term
             done = True
-        
+
         # Update trackers
         self.current_iter += 1
-        
+
         if self.current_iter >= self.max_iter:
             done = True
             timeout_term = -20.0  # Timeout penalty
@@ -226,11 +241,22 @@ class RLAPSOEnv:
         # --- 4. RUNNING REWARD NORMALIZATION + CLIPPING ---
         # update running mean/var (Welford-ish exponential)
         old_mean = self.reward_rmean
-        self.reward_rmean = self.RN_BETA * self.reward_rmean + (1 - self.RN_BETA) * reward
-        self.reward_rvar = self.RN_BETA * self.reward_rvar + (1 - self.RN_BETA) * (reward - old_mean) ** 2
+        self.reward_rmean = (
+            self.RN_BETA * self.reward_rmean + (1 - self.RN_BETA) * reward
+        )
+        self.reward_rvar = (
+            self.RN_BETA * self.reward_rvar
+            + (1 - self.RN_BETA) * (reward - old_mean) ** 2
+        )
         r_std = np.sqrt(self.reward_rvar) + 1e-6
 
         # normalize and clip
-        reward_norm = float(np.clip((reward - self.reward_rmean) / r_std, -self.REWARD_CLIP, self.REWARD_CLIP))
+        reward_norm = float(
+            np.clip(
+                (reward - self.reward_rmean) / r_std,
+                -self.REWARD_CLIP,
+                self.REWARD_CLIP,
+            )
+        )
 
         return self._get_state(), reward_norm, done, valid_params

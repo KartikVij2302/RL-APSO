@@ -3,14 +3,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import os
+
 # Ensure we can import modules from the same directory
 import random
 from PPO import PPOAgent
 import torch
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
-    
+
 
 def set_global_seed(seed: int = 42) -> None:
     """Seed Python, NumPy and (if available) PyTorch RNGs for reproducibility."""
@@ -24,6 +26,7 @@ def set_global_seed(seed: int = 42) -> None:
         # for more deterministic CUDA behaviour (slower)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
 
 def run_rl_apso_training_random_particles():
     """Train RL-APSO with a random swarm size per episode.
@@ -51,10 +54,12 @@ def run_rl_apso_training_random_particles():
     lr = 3e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
-    num_episodes = 12000
+    num_episodes = 14000
     rewards_history = []
 
-    print(f"Starting RL-APSO Training with random swarm sizes for {num_episodes} episodes...")
+    print(
+        f"Starting RL-APSO Training with random swarm sizes for {num_episodes} episodes..."
+    )
 
     for ep in range(num_episodes):
         ep_num_particles = random.randint(5, 30)
@@ -89,9 +94,10 @@ def run_rl_apso_training_random_particles():
             )
 
     # Save model trained with variable swarm sizes
-    agent.save(os.path.join(current_dir, "models/latest_ppo_apso_random_particles_9.pth"))
-    print("Model saved to models/latest_ppo_apso_random_particles_9.pth")
-
+    agent.save(
+        os.path.join(current_dir, "models/latest_ppo_apso_random_particles_12.pth")
+    )
+    print("Model saved to models/latest_ppo_apso_random_particles_12.pth")
 
     try:
         plt.figure()
@@ -104,7 +110,7 @@ def run_rl_apso_training_random_particles():
     except Exception as e:
         print(f"Plotting failed: {e}")
 
+
 if __name__ == "__main__":
 
     run_rl_apso_training_random_particles()
-        

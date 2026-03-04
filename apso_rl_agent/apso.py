@@ -1,13 +1,15 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from typing import Callable, Tuple, List, Optional
+
 
 # -------------------------
 # Utility: validate params (eqns 14-17)
 # -------------------------
 def validate_apso_params(w1: float, w2: float, c1: float, c2: float, T: float) -> None:
     if not (2.0 / T) * (1 + w1 + w2 + w1 * w2) > (c1 + c2):
-        raise ValueError("Stability condition (14) violated: (2/T)*(1+w1+w2+w1*w2) > c1+c2 must hold.")
+        raise ValueError(
+            "Stability condition (14) violated: (2/T)*(1+w1+w2+w1*w2) > c1+c2 must hold."
+        )
     if abs(w1 * w2) >= 1.0:
         raise ValueError("Stability condition (15) violated: |w1*w2| < 1 required.")
     lhs = abs((1 - w1 * w2) * (w1 + w2) + (w1 * w2) * (c1 * T + c2 * T))
@@ -21,17 +23,16 @@ def validate_apso_params(w1: float, w2: float, c1: float, c2: float, T: float) -
 # -------------------------
 # Signal model (S_mi) - deterministic
 # -------------------------
-def measure_signal(pos: np.ndarray,
-                   source_pos: np.ndarray,
-                   S_s: float = 1.0,
-                   alpha: float = 0.01) -> float:
+def measure_signal(
+    pos: np.ndarray, source_pos: np.ndarray, S_s: float = 1.0, alpha: float = 0.01
+) -> float:
     """
     Deterministic signal model (noise-free):
 
     S_mi(t) = S_s * exp(-alpha * d_i(t)^2)
     """
     d = np.linalg.norm(pos - source_pos)
-    S_true = S_s * np.exp(-alpha * (d ** 2))
+    S_true = S_s * np.exp(-alpha * (d**2))
     return float(S_true)
 
 
@@ -54,20 +55,22 @@ class Particle:
 # APSO for source-seeking
 # -------------------------
 class APSO_SourceSeeker:
-    def __init__(self,
-                 objective: Callable[[np.ndarray], float],  # kept for interface compatibility
-                 bounds: Tuple[np.ndarray, np.ndarray],
-                 source_pos: np.ndarray,
-                 num_particles: int = 10,
-                 w1: float = 0.6,
-                 w2: float = 0.4,
-                 c1: float = 1.0,
-                 c2: float = 1.0,
-                 T: float = 1.0,
-                 S_s: float = 1.0,
-                 alpha: float = 0.01,
-                 termination_dist: float = 0.1,   # <-- default now 0.1 m
-                 seed: Optional[int] = None):
+    def __init__(
+        self,
+        objective: Callable[[np.ndarray], float],  # kept for interface compatibility
+        bounds: Tuple[np.ndarray, np.ndarray],
+        source_pos: np.ndarray,
+        num_particles: int = 10,
+        w1: float = 0.6,
+        w2: float = 0.4,
+        c1: float = 1.0,
+        c2: float = 1.0,
+        T: float = 1.0,
+        S_s: float = 1.0,
+        alpha: float = 0.01,
+        termination_dist: float = 0.1,  # <-- default now 0.1 m
+        seed: Optional[int] = None,
+    ):
         """
         APSO source seeker (deterministic measurement).
         termination_dist default set to 0.1 m per your requirement.
@@ -79,7 +82,10 @@ class APSO_SourceSeeker:
 
         validate_apso_params(w1, w2, c1, c2, T)
 
-        self.bounds = (np.asarray(bounds[0], dtype=float), np.asarray(bounds[1], dtype=float))
+        self.bounds = (
+            np.asarray(bounds[0], dtype=float),
+            np.asarray(bounds[1], dtype=float),
+        )
         self.dim = self.bounds[0].shape[0]
         self.N = int(num_particles)
 
@@ -96,7 +102,9 @@ class APSO_SourceSeeker:
         self.source_pos = np.asarray(source_pos, dtype=float)
 
         # swarm
-        self.particles: List[Particle] = [Particle(self.dim, self.bounds[0], self.bounds[1]) for _ in range(self.N)]
+        self.particles: List[Particle] = [
+            Particle(self.dim, self.bounds[0], self.bounds[1]) for _ in range(self.N)
+        ]
         self._init_particles_on_boundary()
         # initialize personal bests with initial measurements
         for p in self.particles:
@@ -109,6 +117,7 @@ class APSO_SourceSeeker:
 
         # bookkeeping
         self.iteration = 0
+
     def _init_particles_on_boundary(self):
         """
         Place each particle at a random point on the boundary of the 2D box [lo,hi] x [lo,hi].
@@ -120,16 +129,16 @@ class APSO_SourceSeeker:
 
         for p in self.particles:
             side = int(self.rng.integers(0, 4))  # 0..3
-            if side == 0:   # bottom edge (y = lo[1])
+            if side == 0:  # bottom edge (y = lo[1])
                 x = self.rng.uniform(lo[0], hi[0])
                 pos = np.array([x, lo[1]], dtype=float)
-            elif side == 1: # right edge (x = hi[0])
+            elif side == 1:  # right edge (x = hi[0])
                 y = self.rng.uniform(lo[1], hi[1])
                 pos = np.array([hi[0], y], dtype=float)
-            elif side == 2: # top edge (y = hi[1])
+            elif side == 2:  # top edge (y = hi[1])
                 x = self.rng.uniform(lo[0], hi[0])
                 pos = np.array([x, hi[1]], dtype=float)
-            else:           # left edge (x = lo[0])
+            else:  # left edge (x = lo[0])
                 y = self.rng.uniform(lo[1], hi[1])
                 pos = np.array([lo[0], y], dtype=float)
 
@@ -141,8 +150,9 @@ class APSO_SourceSeeker:
 
             # recompute personal best at this initial position
             p.best_x = p.x.copy()
-            p.best_signal = measure_signal(p.x, self.source_pos, S_s=self.S_s, alpha=self.alpha)
-
+            p.best_signal = measure_signal(
+                p.x, self.source_pos, S_s=self.S_s, alpha=self.alpha
+            )
 
     def step(self) -> Tuple[bool, float]:
         """
@@ -167,8 +177,8 @@ class APSO_SourceSeeker:
             r1 = self.rng.uniform(0.0, self.c1)
             r2 = self.rng.uniform(0.0, self.c2)
 
-            personal_term = (p.best_x - p.x)
-            global_term = (self.gbest_x - p.x)
+            personal_term = p.best_x - p.x
+            global_term = self.gbest_x - p.x
 
             a_new = self.w1 * p.a + r1 * personal_term + r2 * global_term
             v_new = self.w2 * p.v + a_new * self.T
@@ -187,8 +197,9 @@ class APSO_SourceSeeker:
 
         # compute min distance to source (for termination check)
         min_dist = min(np.linalg.norm(p.x - self.source_pos) for p in self.particles)
-        found = (min_dist <= self.termination_dist)
+        found = min_dist <= self.termination_dist
         return found, float(min_dist)
+
     def run_monte_carlo(self, runs: int = 30, max_iter: int = 1000) -> dict:
         """
         Perform multiple independent Monte Carlo runs and compute metrics:
@@ -204,13 +215,18 @@ class APSO_SourceSeeker:
 
         for r in range(runs):
             # Reinitialize swarm for each run
-            self.particles = [Particle(self.dim, self.bounds[0], self.bounds[1]) for _ in range(self.N)]
+            self.particles = [
+                Particle(self.dim, self.bounds[0], self.bounds[1])
+                for _ in range(self.N)
+            ]
             for p in self.particles:
                 s = measure_signal(p.x, self.source_pos, S_s=self.S_s, alpha=self.alpha)
                 p.best_signal = s
                 p.best_x = p.x.copy()
             self.gbest_signal = max(p.best_signal for p in self.particles)
-            self.gbest_x = max(self.particles, key=lambda p: p.best_signal).best_x.copy()
+            self.gbest_x = max(
+                self.particles, key=lambda p: p.best_signal
+            ).best_x.copy()
             # reset distances and iteration
             for p in self.particles:
                 p.dist_travelled = 0.0
@@ -239,9 +255,7 @@ class APSO_SourceSeeker:
         }
 
     def run_single(
-        self,
-        max_iter: int = 1000,
-        speed: float = 10.0
+        self, max_iter: int = 1000, speed: float = 10.0
     ) -> Tuple[float, int, float, List[np.ndarray]]:
         """
         Run APSO until the source is found or max_iter is reached.
@@ -263,15 +277,12 @@ class APSO_SourceSeeker:
         for it in range(1, max_iter + 1):
             found, _ = self.step()
 
-            traj_history.append(
-                np.vstack([p.x.copy() for p in self.particles])
-            )
+            traj_history.append(np.vstack([p.x.copy() for p in self.particles]))
 
             if found:
                 # --- Identify the UAV that actually reached the source ---
                 finder = min(
-                    self.particles,
-                    key=lambda p: np.linalg.norm(p.x - self.source_pos)
+                    self.particles, key=lambda p: np.linalg.norm(p.x - self.source_pos)
                 )
 
                 # --- Time metric: physical time ---
@@ -281,9 +292,7 @@ class APSO_SourceSeeker:
                 iterations_used = it
 
                 # --- Swarm distance metric (Eq. 24, per-run quantity SD_i) ---
-                swarm_distance_total = sum(
-                    p.dist_travelled for p in self.particles
-                )
+                swarm_distance_total = sum(p.dist_travelled for p in self.particles)
 
                 return (
                     time_to_find,
@@ -295,9 +304,7 @@ class APSO_SourceSeeker:
         # -----------------------------
         # If source NOT found
         # -----------------------------
-        swarm_distance_total = sum(
-            p.dist_travelled for p in self.particles
-        )
+        swarm_distance_total = sum(p.dist_travelled for p in self.particles)
 
         # Upper-bound proxy for time (no finder UAV)
         time_to_find = swarm_distance_total / speed
@@ -350,7 +357,10 @@ class APSO_FunctionOptimizer:
         validate_apso_params(w1, w2, c1, c2, T)
 
         self.objective = objective
-        self.bounds = (np.asarray(bounds[0], dtype=float), np.asarray(bounds[1], dtype=float))
+        self.bounds = (
+            np.asarray(bounds[0], dtype=float),
+            np.asarray(bounds[1], dtype=float),
+        )
         self.dim = self.bounds[0].shape[0]
         self.N = int(num_particles)
 
@@ -408,8 +418,8 @@ class APSO_FunctionOptimizer:
             r1 = self.rng.uniform(0.0, self.c1)
             r2 = self.rng.uniform(0.0, self.c2)
 
-            personal_term = (p.best_x - p.x)
-            global_term = (self.gbest_x - p.x)
+            personal_term = p.best_x - p.x
+            global_term = self.gbest_x - p.x
 
             a_new = self.w1 * p.a + r1 * personal_term + r2 * global_term
             v_new = self.w2 * p.v + a_new * self.T
@@ -423,8 +433,6 @@ class APSO_FunctionOptimizer:
 
         found = self.gbest_value <= self.termination_tol
         return found, self.gbest_value
-
-
 
     def run_monte_carlo(self, runs: int = 30, max_iter: int = 1000) -> dict:
         """
@@ -441,13 +449,18 @@ class APSO_FunctionOptimizer:
 
         for r in range(runs):
             # Reinitialize swarm for each run
-            self.particles = [Particle(self.dim, self.bounds[0], self.bounds[1]) for _ in range(self.N)]
+            self.particles = [
+                Particle(self.dim, self.bounds[0], self.bounds[1])
+                for _ in range(self.N)
+            ]
             for p in self.particles:
                 s = measure_signal(p.x, self.source_pos, S_s=self.S_s, alpha=self.alpha)
                 p.best_signal = s
                 p.best_x = p.x.copy()
             self.gbest_signal = max(p.best_signal for p in self.particles)
-            self.gbest_x = max(self.particles, key=lambda p: p.best_signal).best_x.copy()
+            self.gbest_x = max(
+                self.particles, key=lambda p: p.best_signal
+            ).best_x.copy()
             # reset distances and iteration
             for p in self.particles:
                 p.dist_travelled = 0.0
@@ -474,8 +487,3 @@ class APSO_FunctionOptimizer:
             "SD_list": SD_list,
             "histories": all_histories,
         }
-
-
-
-
-

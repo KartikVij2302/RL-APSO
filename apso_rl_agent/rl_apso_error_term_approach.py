@@ -4,6 +4,7 @@ import random
 import copy
 import numpy as np
 import torch
+
 # Allow running this file directly (not just as a package module)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -70,7 +71,7 @@ class RLAPSOEnvErrorOnly:
             T=1.0,
             S_s=1.0,
             alpha=0.01,
-            termination_dist=0.1
+            termination_dist=0.1,
         )
 
         self.current_iter = 0
@@ -102,16 +103,19 @@ class RLAPSOEnvErrorOnly:
         num_particles_n = (self.num_particles - 5.0) / 25.0
         # maps 5->0, 30->1
 
-        return np.array([
-            signal_change,
-            time_left,
-            avg_vel,
-            w1,
-            w2,
-            c1,
-            c2,
-            num_particles_n,
-        ], dtype=np.float32)
+        return np.array(
+            [
+                signal_change,
+                time_left,
+                avg_vel,
+                w1,
+                w2,
+                c1,
+                c2,
+                num_particles_n,
+            ],
+            dtype=np.float32,
+        )
 
     # -------------------------------------------------
     # Step
@@ -191,7 +195,7 @@ class RLAPSOEnvErrorOnly:
         # -------------------------------------------------
         lo, hi = self.bounds
         if np.any(curr_pos < lo) or np.any(curr_pos > hi):
-            reward = -1000.0   # very large negative penalty
+            reward = -1000.0  # very large negative penalty
             done = True
         else:
 
@@ -200,10 +204,10 @@ class RLAPSOEnvErrorOnly:
             # -------------------------------------------------
             # min_dist should already be computed earlier
             eps = 1e-6
-            PROX_SCALE = 20.0   # tune if needed
+            PROX_SCALE = 20.0  # tune if needed
             proximity_reward = 0.1 + PROX_SCALE * np.log(1.0 / (min_dist + eps))
             reward += proximity_reward
-            
+
             # -------------------------------------------------
             # (3) TIME PENALTY (moderate, not dominant)
             # -------------------------------------------------
@@ -221,9 +225,8 @@ class RLAPSOEnvErrorOnly:
             # -------------------------------------------------
             termination_dist = getattr(self.apso, "termination_dist", 0.1)
             if min_dist <= termination_dist:
-                reward += 1500.0   # very large positive reward
+                reward += 1500.0  # very large positive reward
                 done = True
-
 
         # -------------------------------------------------
         # 6. Bookkeeping
@@ -275,7 +278,6 @@ def run_rl_apso_error_term_training(
       `raw_action * error_scale` as the actual positional error (meters).
     """
 
-
     set_global_seed(seed)
 
     lo = np.array([0.0, 0.0], dtype=np.float32)
@@ -284,7 +286,9 @@ def run_rl_apso_error_term_training(
 
     # Fixed source location (per request)
     source = np.array([50.0, 50.0], dtype=np.float32)
-    env = RLAPSOEnvErrorOnly(source, bounds, num_particles=num_particles, max_iter=max_iter)
+    env = RLAPSOEnvErrorOnly(
+        source, bounds, num_particles=num_particles, max_iter=max_iter
+    )
 
     state_dim = 8
     action_dim = 2
@@ -371,10 +375,12 @@ def run_rl_apso_error_term_training(
                 f"Last swarm size: {ep_num_particles}"
             )
             if early_stop and len(rewards_history) >= int(early_stop_window):
-                ma_reward = float(np.mean(rewards_history[-int(early_stop_window):]))
+                ma_reward = float(np.mean(rewards_history[-int(early_stop_window) :]))
                 msg += f" | MA{int(early_stop_window)}: {ma_reward:.4f} | Best MA: {best_ma_reward:.4f}"
                 if episodes_since_improve > 0:
-                    msg += f" | No-improve: {episodes_since_improve}/{early_stop_patience}"
+                    msg += (
+                        f" | No-improve: {episodes_since_improve}/{early_stop_patience}"
+                    )
             print(msg)
 
     # Save best (preferred) parameters.

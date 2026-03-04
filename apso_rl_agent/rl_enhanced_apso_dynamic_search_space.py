@@ -4,9 +4,11 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+
 # project-specific imports (ensure these modules are on sys.path)
 from .rl_apso_dynamic_swarm_size import RLAPSOEnv
 from .PPO import PPOAgent
+
 
 def set_global_seed(seed: int = 42) -> None:
     """Seed Python, NumPy and (if available) PyTorch RNGs for reproducibility."""
@@ -20,6 +22,8 @@ def set_global_seed(seed: int = 42) -> None:
         # for more deterministic CUDA behaviour (slower)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+
 # ensure current directory is importable
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -44,7 +48,9 @@ def run_rl_apso_training_variable_arena():
     models_dir = os.path.join(current_dir, "models")
     os.makedirs(models_dir, exist_ok=True)
 
-    print(f"Starting RL-APSO Training (variable arena size) for {num_episodes} episodes...")
+    print(
+        f"Starting RL-APSO Training (variable arena size) for {num_episodes} episodes..."
+    )
 
     for ep in range(num_episodes):
         # Sample arena size y in [10, 100] meters (float or int; use int for simplicity)
@@ -61,7 +67,12 @@ def run_rl_apso_training_variable_arena():
         ep_num_particles = random.randint(5, 30)
 
         # Re-create environment for this episode so bounds & swarm size are applied cleanly
-        env = RLAPSOEnv(source_pos=source, bounds=(lo, hi), num_particles=ep_num_particles, max_iter=max_iter)
+        env = RLAPSOEnv(
+            source_pos=source,
+            bounds=(lo, hi),
+            num_particles=ep_num_particles,
+            max_iter=max_iter,
+        )
 
         # (If your RLAPSOEnv.reset accepts source_pos/num_particles kwargs, you could reuse env.
         #  Here we recreate env to be robust to different signatures.)
@@ -116,6 +127,7 @@ def run_rl_apso_training_variable_arena():
         print(f"Training plot saved to {out_plot}")
     except Exception as e:
         print(f"Plotting failed: {e}")
+
 
 if __name__ == "__main__":
     run_rl_apso_training_variable_arena()

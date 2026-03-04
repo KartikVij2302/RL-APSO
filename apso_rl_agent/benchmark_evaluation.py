@@ -4,33 +4,36 @@ from apso_rl_agent.rl_enhanced_apso import set_global_seed
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
+
 def sphere(x: np.ndarray) -> float:
-    return float(np.sum(x ** 2))
+    return float(np.sum(x**2))
+
 
 def rosenbrock(x: np.ndarray) -> float:
     return float(np.sum(100.0 * (x[1:] - x[:-1] ** 2) ** 2 + (1.0 - x[:-1]) ** 2))
 
+
 def ackley(x: np.ndarray) -> float:
     a, b, c = 20.0, 0.2, 2.0 * np.pi
     d = len(x)
-    sum1 = np.sum(x ** 2)
+    sum1 = np.sum(x**2)
     sum2 = np.sum(np.cos(c * x))
     term1 = -a * np.exp(-b * np.sqrt(sum1 / d))
     term2 = -np.exp(sum2 / d)
     return float(term1 + term2 + a + np.exp(1.0))
 
+
 def griewank(x: np.ndarray) -> float:
-    sum_sq = np.sum(x ** 2)
+    sum_sq = np.sum(x**2)
     prod_cos = np.prod(np.cos(x / np.sqrt(np.arange(1, len(x) + 1))))
     return float(1.0 + sum_sq / 4000.0 - prod_cos)
 
 
 def rastrigin(x: np.ndarray) -> float:
     A = 10.0
-    return float(A * len(x) + np.sum(x ** 2 - A * np.cos(2.0 * np.pi * x)))
+    return float(A * len(x) + np.sum(x**2 - A * np.cos(2.0 * np.pi * x)))
 
 
 BENCHMARKS = {
@@ -138,9 +141,13 @@ def evaluate_rl_apso_on_function(
             action, _ = agent.select_action(state)
 
             # Map action to APSO parameters and validate stability
-            w1_new, w2_new, c1_new, c2_new = _map_action_to_params_for_function(apso, action)
+            w1_new, w2_new, c1_new, c2_new = _map_action_to_params_for_function(
+                apso, action
+            )
             try:
-                validate_apso_params(w1_new, w2_new, c1_new, c2_new, getattr(apso, "T", 1.0))
+                validate_apso_params(
+                    w1_new, w2_new, c1_new, c2_new, getattr(apso, "T", 1.0)
+                )
                 apso.w1 = w1_new
                 apso.w2 = w2_new
                 apso.c1 = c1_new
@@ -256,7 +263,9 @@ def evaluate_trained_rl_apso_on_benchmarks(
 
     model_path = os.path.join(current_dir, "ppo_apso.pth")
     if not os.path.exists(model_path):
-        print(f"[Error] Trained PPO model not found at {model_path}. Run training first.")
+        print(
+            f"[Error] Trained PPO model not found at {model_path}. Run training first."
+        )
         return
 
     agent.load(model_path)
@@ -299,7 +308,9 @@ def evaluate_trained_rl_apso_on_benchmarks(
 
         print(f"  Bounds: [{lo}, {hi}]")
         print(f"  RL-APSO   mean best f(x): {rl_vals.mean():.6e} ± {rl_vals.std():.2e}")
-        print(f"  Fixed APSO mean best f(x): {fixed_vals.mean():.6e} ± {fixed_vals.std():.2e}")
+        print(
+            f"  Fixed APSO mean best f(x): {fixed_vals.mean():.6e} ± {fixed_vals.std():.2e}"
+        )
         print(f"  RL-APSO   mean iterations: {rl_iters.mean():.2f}")
         print(f"  Fixed APSO mean iterations: {fixed_iters.mean():.2f}")
 

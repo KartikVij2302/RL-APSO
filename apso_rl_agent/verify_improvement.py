@@ -14,10 +14,11 @@ np.random.seed(SEED)
 from apso import APSO_SourceSeeker, validate_apso_params
 from PPO import PPOAgent
 
+
 # ---------------------------------------------------------
 # 1. Helper to calculate State (Must match your Training Env)
 # ---------------------------------------------------------
-def get_rl_state(apso_instance, prev_signal, current_iter, max_iter,num_particles):
+def get_rl_state(apso_instance, prev_signal, current_iter, max_iter, num_particles):
     """
     State vector MUST match what the policy was trained on.
     We include:
@@ -27,80 +28,93 @@ def get_rl_state(apso_instance, prev_signal, current_iter, max_iter,num_particle
             - normalized swarm size (num_particles)
         => 8-dimensional state (float32)
     """
-        # 1. Signal Change
+    # 1. Signal Change
     current_signal = apso_instance.gbest_signal
     signal_change = current_signal - prev_signal
 
-        # 2. Normalized Time Left (match training env)
+    # 2. Normalized Time Left (match training env)
     time_left = 1.0 - (current_iter / max(1, max_iter))
     avg_vel = np.mean([np.linalg.norm(p.v) for p in apso_instance.particles])
 
-        # 3. APSO params (normalized)
+    # 3. APSO params (normalized)
     w1 = getattr(apso_instance, "w1", 0.0)
     w2 = getattr(apso_instance, "w2", 0.0)
     c1 = getattr(apso_instance, "c1", 1.0)
     c2 = getattr(apso_instance, "c2", 1.0)
 
     # Normalizations used during training:
-    w1_n = np.clip(w1 / 2.0, -1.0, 1.0)   # assume w1 roughly in [-2,2]
-    w2_n = np.clip(w2 / 2.0, -1.0, 1.0)   # assume w2 roughly in [-2,2]
-    c1_n = np.clip(c1 / 5.0, 0.0, 1.0)    # c1 in [0,5]
-    c2_n = np.clip(c2 / 5.0, 0.0, 1.0)    # c2 in [0,5]
+    w1_n = np.clip(w1 / 2.0, -1.0, 1.0)  # assume w1 roughly in [-2,2]
+    w2_n = np.clip(w2 / 2.0, -1.0, 1.0)  # assume w2 roughly in [-2,2]
+    c1_n = np.clip(c1 / 5.0, 0.0, 1.0)  # c1 in [0,5]
+    c2_n = np.clip(c2 / 5.0, 0.0, 1.0)  # c2 in [0,5]
 
     num_particles_n = (float(num_particles) - 5.0) / 25.0
     # maps 5->0, 30->1
 
-    state = np.array([
-        signal_change,
-        time_left,
-        avg_vel,
-        w1_n,
-        w2_n,
-        c1_n,
-        c2_n,
-        num_particles_n,
-    ], dtype=np.float32)
+    state = np.array(
+        [
+            signal_change,
+            time_left,
+            avg_vel,
+            w1_n,
+            w2_n,
+            c1_n,
+            c2_n,
+            num_particles_n,
+        ],
+        dtype=np.float32,
+    )
     return state
+
 
 # ---------------------------------------------------------
 # 1b. Reusable mapping from action [-1,1]^4 -> APSO params
 #     Must match training mapping in RLAPSOEnv exactly
 # ---------------------------------------------------------
 def map_action_to_params(apso_instance, action):
-        """Map PPO action in [-1,1]^4 to APSO parameters.
+    """Map PPO action in [-1,1]^4 to APSO parameters.
 
-        Mirrors RLAPSOEnv._map_action_to_params: parameters are updated
-        multiplicatively around their current values using a fractional
-        delta in [-0.2, 0.2].
-        """
-        delta_frac = 0.2
-        a = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
+    Mirrors RLAPSOEnv._map_action_to_params: parameters are updated
+    multiplicatively around their current values using a fractional
+    delta in [-0.2, 0.2].
+    """
+    delta_frac = 0.2
+    a = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
 
-        w1_cur = getattr(apso_instance, "w1", 0.675)
-        w2_cur = getattr(apso_instance, "w2", -0.285)
-        c1_cur = getattr(apso_instance, "c1", 1.193)
-        c2_cur = getattr(apso_instance, "c2", 1.193)
+    w1_cur = getattr(apso_instance, "w1", 0.675)
+    w2_cur = getattr(apso_instance, "w2", -0.285)
+    c1_cur = getattr(apso_instance, "c1", 1.193)
+    c2_cur = getattr(apso_instance, "c2", 1.193)
 
-        w1 = w1_cur * (1.0 + delta_frac * a[0])
-        w2 = w2_cur * (1.0 + delta_frac * a[1])
-        c1 = c1_cur * (1.0 + delta_frac * a[2])
-        c2 = c2_cur * (1.0 + delta_frac * a[3])
+    w1 = w1_cur * (1.0 + delta_frac * a[0])
+    w2 = w2_cur * (1.0 + delta_frac * a[1])
+    c1 = c1_cur * (1.0 + delta_frac * a[2])
+    c2 = c2_cur * (1.0 + delta_frac * a[3])
 
-        return w1, w2, c1, c2
+    return w1, w2, c1, c2
+
 
 # ---------------------------------------------------------
 # 2. The RL-Guided Loop (evaluation)
 # ---------------------------------------------------------
-def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=None):
+def run_rl_guided_apso(
+    agent, n_runs=30, max_iter=500, num_particles=20, source=None, side_length=100.0
+):
 
     results = {
-        "run": [], "Ts": [], "I": [], "SD": [], "Success": [], "time_elapsed": []
+        "run": [],
+        "Ts": [],
+        "I": [],
+        "SD": [],
+        "Success": [],
+        "time_elapsed": [],
     }
 
     lo = np.array([0.0, 0.0])
-    hi = np.array([100.0, 100.0])
+    hi = np.array([float(side_length), float(side_length)])
     if source is None:
-        source = np.array([50.0, 50.0])
+        half = float(side_length) * 0.5
+        source = np.array([half, half])
 
     speed = 10.0
 
@@ -112,8 +126,13 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
             bounds=(lo, hi),
             source_pos=source,
             num_particles=num_particles,
-            w1=0.675, w2=-0.285, c1=1.193, c2=1.193,
-            S_s=1.0, alpha=0.01, termination_dist=0.1
+            w1=0.675,
+            w2=-0.285,
+            c1=1.193,
+            c2=1.193,
+            S_s=1.0,
+            alpha=0.01,
+            termination_dist=0.1,
         )
 
         prev_signal = apso.gbest_signal
@@ -174,22 +193,33 @@ def run_rl_guided_apso(agent, n_runs=30, max_iter=500, num_particles=20, source=
 
     return results
 
+
 # ---------------------------------------------------------
 # 3. Baseline:run manual baseline
 # ---------------------------------------------------------
-def run_fixed_baseline(n_runs=50, max_iter=500, num_particles=20, source=None):
+def run_fixed_baseline(
+    n_runs=50, max_iter=500, num_particles=20, source=None, side_length=100.0
+):
     lo = np.array([0.0, 0.0])
-    hi = np.array([100.0, 100.0])
+    hi = np.array([float(side_length), float(side_length)])
     if source is None:
-        source = np.array([50.0, 50.0])
+        half = float(side_length) * 0.5
+        source = np.array([half, half])
 
     # Manual baseline simulation (same logic as RL loop but with fixed params)
     results = {"Ts": [], "I": [], "SD": [], "Success": []}
     for r in range(n_runs):
         apso = APSO_SourceSeeker(
-            objective=lambda x: 0.0, bounds=(lo, hi),
-            source_pos=source, num_particles=num_particles,
-            w1=0.675, w2=-0.285, c1=1.193, c2=1.193, T=1.0, termination_dist=0.1
+            objective=lambda x: 0.0,
+            bounds=(lo, hi),
+            source_pos=source,
+            num_particles=num_particles,
+            w1=0.675,
+            w2=-0.285,
+            c1=1.193,
+            c2=1.193,
+            T=1.0,
+            termination_dist=0.1,
         )
         found = False
         for t in range(max_iter):
@@ -214,11 +244,59 @@ def run_fixed_baseline(n_runs=50, max_iter=500, num_particles=20, source=None):
             time_s = float(total_sd) / speed
 
         results["Ts"].append(time_s)
-        results["I"].append(t+1)
+        results["I"].append(t + 1)
         results["SD"].append(total_sd)
         results["Success"].append(1 if found else 0)
 
     return results
+
+
+def compare_area_sizes_fixed_swarm(agent, n_runs=200, max_iter=400):
+    """Compare APSO vs RL-APSO across square area sizes with fixed swarm size."""
+    side_lengths = [25.0, 50.0, 75.0, 100.0]
+    num_particles = 5
+    rows = []
+
+    for L in side_lengths:
+        source = np.array([L * 0.5, L * 0.5])
+
+        base_res = run_fixed_baseline(
+            n_runs=n_runs,
+            max_iter=max_iter,
+            num_particles=num_particles,
+            source=source,
+            side_length=L,
+        )
+        rl_res = run_rl_guided_apso(
+            agent,
+            n_runs=n_runs,
+            max_iter=max_iter,
+            num_particles=num_particles,
+            source=source,
+            side_length=L,
+        )
+
+        rows.append(
+            {
+                "area": f"{int(L)}x{int(L)}",
+                "method": "APSO",
+                "mu_I": float(np.mean(base_res["I"])),
+                "mu_Ts": float(np.mean(base_res["Ts"])),
+                "mu_SD": float(np.mean(base_res["SD"])),
+            }
+        )
+        rows.append(
+            {
+                "area": f"{int(L)}x{int(L)}",
+                "method": "RL-APSO",
+                "mu_I": float(np.mean(rl_res["I"])),
+                "mu_Ts": float(np.mean(rl_res["Ts"])),
+                "mu_SD": float(np.mean(rl_res["SD"])),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
 
 # ---------------------------------------------------------
 # 4. Main Comparison Block
@@ -243,7 +321,7 @@ if __name__ == "__main__":
     if model_choice == "fixed":
         model_path = "apso_rl_agent/models/latest_ppo_apso_fixed_source_4.pth"
     else:
-        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_9.pth"
+        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_12.pth"
 
     print(f"[Info] Using '{model_choice}' model from {model_path}")
     try:
@@ -256,9 +334,17 @@ if __name__ == "__main__":
                 agent.load_state_dict(sd)
                 print(f"[Info] Loaded agent via load_state_dict from '{model_path}'.")
             else:
-                print("[Warning] Agent has no recognized load method; proceeding with uninitialized agent.")
+                print(
+                    "[Warning] Agent has no recognized load method; proceeding with uninitialized agent."
+                )
     except Exception as e:
-        print(f"[Warning] Failed to load agent from {model_path}: {e}. Proceeding with fresh agent (not ideal).")
+        print(
+            f"[Warning] Failed to load agent from {model_path}: {e}. Proceeding with fresh agent (not ideal)."
+        )
+
+    print("\n--- Area-size sweep (fixed swarm size = 5) ---")
+    area_df = compare_area_sizes_fixed_swarm(agent, n_runs=200, max_iter=400)
+    print(area_df.to_string(index=False))
 
     # Evaluation configuration (FIXED grid + FIXED source, VARIABLE swarm size)
     N_RUNS = 1000
@@ -299,24 +385,28 @@ if __name__ == "__main__":
 
         # record per-run rows for CSV
         for r in range(N_RUNS):
-            rows.append({
-                "n_particles": n_particles,
-                "run": r,
-                "Ts": base_res["Ts"][r],
-                "I": base_res["I"][r],
-                "SD": base_res["SD"][r],
-                "Success": base_res["Success"][r],
-                "Type": "Fixed",
-            })
-            rows.append({
-                "n_particles": n_particles,
-                "run": r,
-                "Ts": rl_res["Ts"][r],
-                "I": rl_res["I"][r],
-                "SD": rl_res["SD"][r],
-                "Success": rl_res["Success"][r],
-                "Type": "RL",
-            })
+            rows.append(
+                {
+                    "n_particles": n_particles,
+                    "run": r,
+                    "Ts": base_res["Ts"][r],
+                    "I": base_res["I"][r],
+                    "SD": base_res["SD"][r],
+                    "Success": base_res["Success"][r],
+                    "Type": "Fixed",
+                }
+            )
+            rows.append(
+                {
+                    "n_particles": n_particles,
+                    "run": r,
+                    "Ts": rl_res["Ts"][r],
+                    "I": rl_res["I"][r],
+                    "SD": rl_res["SD"][r],
+                    "Success": rl_res["Success"][r],
+                    "Type": "RL",
+                }
+            )
 
         mean_Ts_fixed.append(float(np.mean(base_res["Ts"])))
         mean_Ts_rl.append(float(np.mean(rl_res["Ts"])))
@@ -383,8 +473,12 @@ if __name__ == "__main__":
         print(f"  Success bonus term: {success_mean:.4f}")
         print(f"  Timeout penalty term: {timeout_mean:.4f}")
     except FileNotFoundError:
-        print(f"[Info] Reward component means file not found at {reward_stats_path}. Run rl_enhanced_apso.py training first to generate it.")
+        print(
+            f"[Info] Reward component means file not found at {reward_stats_path}. Run rl_enhanced_apso.py training first to generate it."
+        )
     except Exception as e:
-        print(f"[Warning] Failed to load reward component means from {reward_stats_path}: {e}")
+        print(
+            f"[Warning] Failed to load reward component means from {reward_stats_path}: {e}"
+        )
 
     plt.show()
