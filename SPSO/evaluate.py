@@ -77,13 +77,9 @@ def _policy_action(agent: PPOAgent, state: np.ndarray, deterministic: bool) -> n
 
 def _spso_state(spso: SPSO, prev_best_signal: float, current_iter: int, max_iter: int) -> np.ndarray:
 	"""State matches RLSPOSOEnv._get_state (7-D)."""
-	positions = np.array([p.position for p in spso.particles])
-	gbest = spso.global_best_position
+	diversity = spso.get_mean_local_best_distance()
 
-	dists = np.linalg.norm(positions - gbest[None, :], axis=1)
-	diversity = float(np.mean(dists)) if len(dists) else 0.0
-
-	current_best_signal = float(-spso.global_best_signal)
+	current_best_signal = float(-spso.get_best_local_signal())
 	best_signal_change = current_best_signal - float(prev_best_signal)
 
 	time_left = 1.0 - (current_iter / max(1, max_iter))
@@ -120,6 +116,19 @@ def _apply_rl_c1c2(cfg: EvalConfig, spso: SPSO, action: np.ndarray) -> Tuple[flo
 	return c1, c2
 
 
+def _source_seeking_time(spso: SPSO, found: bool, speed: float) -> float:
+	"""Physical source-seeking time: finder travel distance divided by UAV speed."""
+	if found:
+		finder = min(
+			spso.particles,
+			key=lambda p: np.linalg.norm(p.position - spso.source),
+		)
+		return float(finder.dist_travelled) / max(1e-9, float(speed))
+
+	swarm_distance = float(sum(p.dist_travelled for p in spso.particles))
+	return swarm_distance / max(1e-9, float(speed))
+
+
 def run_baseline(cfg: EvalConfig, sources: np.ndarray, seed: int) -> List[Dict]:
 	rows: List[Dict] = []
 	for run_idx, source in enumerate(sources):
@@ -133,7 +142,7 @@ def run_baseline(cfg: EvalConfig, sources: np.ndarray, seed: int) -> List[Dict]:
 			T=cfg.T,
 			speed=cfg.speed,
 		)
-		spso.source = np.array(source, dtype=float)
+		spso.set_source(source)
 
 		found = False
 		iterations_used = cfg.max_iter
@@ -143,9 +152,7 @@ def run_baseline(cfg: EvalConfig, sources: np.ndarray, seed: int) -> List[Dict]:
 				iterations_used = k
 				break
 
-		# Source seeking time definition: time duration until first detection.
-		# With constant sampling interval T, Ts = I * T.
-		Ts = float(iterations_used) * float(cfg.T)
+		Ts = _source_seeking_time(spso, found=found, speed=cfg.speed)
 
 		rows.append(
 			{
@@ -180,9 +187,9 @@ def run_rl_modified(cfg: EvalConfig, sources: np.ndarray, model_path: str, seed:
 			T=cfg.T,
 			speed=cfg.speed,
 		)
-		spso.source = np.array(source, dtype=float)
+		spso.set_source(source)
 
-		prev_best_signal = float(-spso.global_best_signal)
+		prev_best_signal = float(-spso.get_best_local_signal())
 		found = False
 		iterations_used = cfg.max_iter
 
@@ -196,9 +203,9 @@ def run_rl_modified(cfg: EvalConfig, sources: np.ndarray, model_path: str, seed:
 				iterations_used = t + 1
 				break
 
-			prev_best_signal = float(-spso.global_best_signal)
+			prev_best_signal = float(-spso.get_best_local_signal())
 
-		Ts = float(iterations_used) * float(cfg.T)
+		Ts = _source_seeking_time(spso, found=found, speed=cfg.speed)
 		rows.append(
 			{
 				"run": int(run_idx),
@@ -255,7 +262,7 @@ def parse_args() -> argparse.Namespace:
 	p.add_argument("--random-source", action="store_true", help="Sample a random source per run uniformly in the grid")
 	p.add_argument("--deterministic", action="store_true", help="Use policy mean action (no sampling)")
 
-	p.add_argument("--out-csv", type=str, default="results/spso_vs_rlspso_eval.csv")
+	p.add_argument("--out-csv", type=str, default="results/spso_vs_rlspso_eval_2.csv")
 	return p.parse_args()
 
 
@@ -298,7 +305,7 @@ def main() -> None:
 	print(f"saved: {args.out_csv}")
 
 	print("\nMetric definitions:")
-	print("  μ(Ts) = (1/N) * Σ Ts_i, Ts_i = I_i * T")
+	print("  μ(Ts) = (1/N) * Σ Ts_i, Ts_i = finder distance travelled / speed")
 	print("  μ(I)  = (1/N) * Σ I_i")
 
 	print("\nResults:")

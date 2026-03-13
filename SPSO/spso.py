@@ -15,6 +15,8 @@ class Particle:
 
         self.best_position = np.zeros(2)
         self.best_signal = float('inf')
+        self.local_best_position = np.zeros(2)
+        self.local_best_signal = float('inf')
 
         self.dist_travelled = 0.0   # <-- ADD THIS
 
@@ -40,9 +42,6 @@ class SPSO:
 
         self.particles = [Particle(i) for i in range(self.n)]
         self._init_particles_on_boundary()
-
-        self.global_best_position = None
-        self.global_best_signal = float('inf')
 
         self.score_history = []
         self.min_distances = []
@@ -73,13 +72,36 @@ class SPSO:
             p.best_signal = -s
             p.best_position = p.position.copy()
 
-        self._update_global_best()
+        self._update_local_best()
+
+    def set_source(self, source_position):
+        self.source = np.array(source_position, dtype=float)
+        self._initialize_bests()
+
+    def get_best_local_signal(self) -> float:
+        if not self.particles:
+            return float('inf')
+        return min(p.local_best_signal for p in self.particles)
+
+    def get_mean_local_best_distance(self) -> float:
+        if not self.particles:
+            return 0.0
+        distances = [np.linalg.norm(p.position - p.local_best_position) for p in self.particles]
+        return float(np.mean(distances))
 
 
-    def _update_global_best(self):
-        best_idx = np.argmin([p.best_signal for p in self.particles])
-        self.global_best_signal = self.particles[best_idx].best_signal
-        self.global_best_position = self.particles[best_idx].best_position.copy()
+    def _update_local_best(self):
+        n_particles = len(self.particles)
+
+        for index, particle in enumerate(self.particles):
+            left = self.particles[(index - 1) % n_particles]
+            right = self.particles[(index + 1) % n_particles]
+            neighborhood = [left, particle, right]
+
+            best_particle = min(neighborhood, key=lambda candidate: candidate.best_signal)
+
+            particle.local_best_position = best_particle.best_position.copy()
+            particle.local_best_signal = best_particle.best_signal
 
     # -----------------------------
     # SPSO update
@@ -87,15 +109,17 @@ class SPSO:
     def step(self) -> bool:
         # Update personal bests
         for p in self.particles:
-            s = measure_signal(p.position,self.source)
-            stored = -s  # maximize signal
+            s = measure_signal(p.position, self.source)
+            delta_S = np.random.normal(0, 0.1 * abs(s))  # 10% noise, adjust as needed
+            s_noisy = s + delta_S
+            stored = -s_noisy  # maximize signal
             if stored < p.best_signal:
                 p.best_signal = stored
                 p.best_position = p.position.copy()
 
-        # Update global best
-        self._update_global_best()
-        self.score_history.append(-self.global_best_signal)
+        # Update ring-neighborhood local bests
+        self._update_local_best()
+        self.score_history.append(-self.get_best_local_signal())
 
         # SPSO velocity + position update
         for p in self.particles:
@@ -105,7 +129,7 @@ class SPSO:
             v_new = (
                 self.omega * p.velocity
                 + r1 * (p.best_position - p.position)
-                + r2 * (self.global_best_position - p.position)
+                + r2 * (p.local_best_position - p.position)
             )
 
             # Enforce constant speed
@@ -157,7 +181,7 @@ def main():
 
     swarm_sizes = list(range(5, 31))
     runs = 100
-    max_iter = 500
+    max_iter = 400
 
     avg_time = []
     avg_iters = []

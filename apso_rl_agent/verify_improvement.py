@@ -309,21 +309,9 @@ if __name__ == "__main__":
     state_dim = 8
     action_dim = 4
     agent = PPOAgent(state_dim, action_dim, lr=0.0003)
+    model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_14.pth"
 
-    model_choice = "random"  # default
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-        if arg in ("fixed", "fixed_source"):
-            model_choice = "fixed"
-        elif arg in ("random", "random_particles", "var_particles"):
-            model_choice = "random"
-
-    if model_choice == "fixed":
-        model_path = "apso_rl_agent/models/latest_ppo_apso_fixed_source_4.pth"
-    else:
-        model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_12.pth"
-
-    print(f"[Info] Using '{model_choice}' model from {model_path}")
+    print(f"[Info] Using model from {model_path}")
     try:
         try:
             agent.load(model_path)

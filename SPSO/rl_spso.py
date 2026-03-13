@@ -78,7 +78,7 @@ def compare_standard_vs_rl(
 	# Build RL agent + env
 	env = RLSPSOEnv(cfg, seed=seed)
 	if algo == "ppo":
-		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=1e-4)
+		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=3e-4)
 	elif algo == "ddpg":
 		agent = DDPGAgent(state_dim=7, action_dim=2, seed=int(seed or 0))
 	elif algo == "td3":
@@ -508,10 +508,10 @@ class RLSPSOEnv:
 
 		# Keep source location fixed (SPSO defaults to center) unless explicitly provided.
 		if source_pos is not None:
-			self.spso.source = np.array(source_pos, dtype=float)
+			self.spso.set_source(source_pos)
 
 		self.current_iter = 0
-		self.prev_best_signal = float(-self.spso.global_best_signal)
+		self.prev_best_signal = float(-self.spso.get_best_local_signal())
 		return self._get_state()
 
 	def _get_state(self) -> np.ndarray:
@@ -519,13 +519,9 @@ class RLSPSOEnv:
 
 		# 7-D state:
 		# [diversity, best_signal_change, time_left, avg_vel, c1_norm, c2_norm, n_particles_norm]
-		positions = np.array([p.position for p in self.spso.particles])
-		gbest = self.spso.global_best_position
+		diversity = self.spso.get_mean_local_best_distance()
 
-		dists = np.linalg.norm(positions - gbest[None, :], axis=1)
-		diversity = float(np.mean(dists)) if len(dists) else 0.0
-
-		current_best_signal = float(-self.spso.global_best_signal)
+		current_best_signal = float(-self.spso.get_best_local_signal())
 		best_signal_change = current_best_signal - self.prev_best_signal
 
 		time_left = 1.0 - (self.current_iter / max(1, self.cfg.max_iter))
@@ -636,7 +632,7 @@ class RLSPSOEnv:
 		reward_norm = float(np.clip((float(reward) - self.reward_rmean) / r_std, -self.cfg.reward_clip, self.cfg.reward_clip))
 
 		# update state trackers
-		current_best_signal = float(-self.spso.global_best_signal)
+		current_best_signal = float(-self.spso.get_best_local_signal())
 		self.prev_best_signal = current_best_signal
 
 		info = {
@@ -724,7 +720,7 @@ def evaluate(cfg: RLSPSOConfig, model_path: str, episodes: int = 30, seed: int |
 	env = RLSPSOEnv(cfg, seed=seed)
 	algo = algo.lower()
 	if algo == "ppo":
-		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=1e-4)
+		agent: object = PPOAgent(state_dim=7, action_dim=2, lr=3e-4)
 	elif algo == "ddpg":
 		agent = DDPGAgent(state_dim=7, action_dim=2, seed=int(seed or 0))
 	elif algo == "td3":
@@ -753,7 +749,7 @@ def evaluate(cfg: RLSPSOConfig, model_path: str, episodes: int = 30, seed: int |
 
 		# episode time proxy: swarm distance / speed
 		swarm_distance = float(sum(p.dist_travelled for p in env.spso.particles))
-		times.append(swarm_distance / max(1e-9, cfg.speed))
+		times.append(swarm_distance / cfg.speed)
 		iters.append(env.current_iter)
 
 	print(
