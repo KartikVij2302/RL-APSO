@@ -48,7 +48,6 @@ class ARPSO_SourceSeeker:
         num_particles: int = 20,
         c1: float = 1.5,
         c2: float = 1.5,
-        c3: float = 0.0,
         wi: float = 0.7,
         T: float = 1.0,
         obstacles: Optional[Sequence[Tuple[np.ndarray, float]]] = None,
@@ -68,7 +67,6 @@ class ARPSO_SourceSeeker:
         self.T = float(T)
         self.c1 = float(c1)
         self.c2 = float(c2)
-        self.c3 = float(c3)
         self.wi = float(wi)
         self.obstacle_margin = float(obstacle_margin)
         self.source_strength = float(source_strength)
@@ -168,7 +166,6 @@ class ARPSO_SourceSeeker:
         self,
         c1: Optional[float] = None,
         c2: Optional[float] = None,
-        c3: Optional[float] = None,
         wi: Optional[float] = None,
     ) -> Tuple[bool, float, float]:
         """One ARPSO iteration.
@@ -180,8 +177,6 @@ class ARPSO_SourceSeeker:
             self.c1 = float(c1)
         if c2 is not None:
             self.c2 = float(c2)
-        if c3 is not None:
-            self.c3 = float(c3)
         if wi is not None:
             self.wi = float(wi)
 
@@ -206,22 +201,18 @@ class ARPSO_SourceSeeker:
         for p in self.particles:
             r1 = self.rng.uniform(0.0, max(0.0, self.c1))
             r2 = self.rng.uniform(0.0, max(0.0, self.c2))
-            r3 = self.rng.uniform(0.0, max(0.0, self.c3))
 
             # omega_i differs per particle and per iteration
             omega_i = np.clip(self.wi + self.rng.uniform(-0.08, 0.08), 0.05, 1.2)
             p.last_omega = float(omega_i)
 
-            xa = self._compute_attractive_position(p)
             personal_term = p.best_x - p.x
             global_term = self.gbest_x - p.x
-            obstacle_term = xa - p.x
 
             v_new = (
                 omega_i * p.v
                 + r1 * personal_term
                 + r2 * global_term
-                + r3 * obstacle_term
             )
             x_new = p.x + v_new * self.T
             x_new = np.clip(x_new, self.bounds[0], self.bounds[1])
@@ -242,14 +233,14 @@ class ARPSO_SourceSeeker:
     def run_single(
         self,
         max_iter: int = 400,
-        param_scheduler: Optional[Callable[[int], Tuple[float, float, float, float]]] = None,
+        param_scheduler: Optional[Callable[[int], Tuple[float, float, float]]] = None,
     ) -> Tuple[float, int, float, bool]:
         """Run until source found or timeout."""
         for k in range(max_iter):
             if param_scheduler is None:
                 found, _, _ = self.step()
             else:
-                c1, c2, c3, wi = param_scheduler(k)
+                c1, c2, wi = param_scheduler(k)
                 found, _, _ = self.step(c1=c1, c2=c2, c3=c3, wi=wi)
             if found:
                 finder = min(self.particles, key=lambda p: np.linalg.norm(p.x - self.source_pos))

@@ -54,7 +54,7 @@ def run_rl_apso_training_random_particles():
     lr = 3e-4
     agent = PPOAgent(state_dim, action_dim, lr=lr)
 
-    num_episodes = 14000
+    num_episodes = 20000
     rewards_history = []
 
     print(
@@ -95,20 +95,25 @@ def run_rl_apso_training_random_particles():
 
     # Save model trained with variable swarm sizes
     agent.save(
-        os.path.join(current_dir, "models/latest_ppo_apso_random_particles_12.pth")
+        os.path.join(current_dir, "models/latest_ppo_apso_random_particles_14.pth")
     )
-    print("Model saved to models/latest_ppo_apso_random_particles_12.pth")
-
-    try:
-        plt.figure()
+    print("Model saved to models/latest_ppo_apso_random_particles_14.pth")
+    window = 50
+    plt.figure()
+    if len(rewards_history) >= window:
+        moving_avg = np.convolve(
+            rewards_history, np.ones(window) / window, mode="valid"
+        )
+        x = np.arange(window - 1, len(rewards_history))
+        plt.plot(x, moving_avg)
+    else:
         plt.plot(rewards_history)
-        plt.xlabel("Episode")
-        plt.ylabel("Total Reward")
-        plt.title("RL-APSO Training Performance (Random Swarm Sizes)")
-        plt.savefig("rl_apso_training_random_particles.png")
-        print("Training plot saved to rl_apso_training_random_particles.png")
-    except Exception as e:
-        print(f"Plotting failed: {e}")
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward (Moving Avg, 50 eps)")
+    plt.title("RL-APSO Training Performance (Random Swarm Sizes)")
+    plt.savefig("rl_apso_training_random_particles.png")
+    print("Training plot saved to rl_apso_training_random_particles.png")
+    
 
 
 if __name__ == "__main__":

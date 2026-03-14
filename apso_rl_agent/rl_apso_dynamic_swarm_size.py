@@ -183,7 +183,7 @@ class RLAPSOEnv:
         # Becomes the dominant penalty after 50% of max_iter
         time_pressure = -10.0 * np.exp(2.0 * (self.current_iter / self.max_iter) - 1.0)
         curr_pos_matrix = np.array([p.x for p in self.apso.particles])
-        step_dist = np.sum(np.linalg.norm(curr_pos_matrix - prev_pos_matrix, axis=1))
+
         # 3. Aggressive Progress Reward
         # Directly targets mu(Ts) by rewarding high-speed approach
         dist_delta = self.prev_gbest_dist - min_dist

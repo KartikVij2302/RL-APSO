@@ -110,8 +110,8 @@ class SPSO:
         # Update personal bests
         for p in self.particles:
             s = measure_signal(p.position, self.source)
-            delta_S = np.random.normal(0, 0.1 * abs(s))  # 10% noise, adjust as needed
-            s_noisy = s + delta_S
+            # delta_S = np.random.normal(0, 0.05 * abs(s))  # 10% noise, adjust as needed
+            s_noisy = s 
             stored = -s_noisy  # maximize signal
             if stored < p.best_signal:
                 p.best_signal = stored
@@ -153,7 +153,7 @@ class SPSO:
         min_dist = float(min(distances)) if distances else float('inf')
         self.min_distances.append(min_dist)
 
-        found = any(d <= 0.1 for d in distances)
+        found = any(d <= 0.5 for d in distances)
         return found
 
 
@@ -170,13 +170,13 @@ class SPSO:
                 iterations_used = k
                 swarm_distance = sum(p.dist_travelled for p in self.particles)
 
-                return time_to_find, iterations_used, swarm_distance
+                return time_to_find, iterations_used, swarm_distance, True
 
         # If not found
         swarm_distance = sum(p.dist_travelled for p in self.particles)
         time_to_find = swarm_distance / self.speed
 
-        return time_to_find, max_iterations, swarm_distance
+        return time_to_find, max_iterations, swarm_distance, False
 def main():
 
     swarm_sizes = list(range(5, 31))
@@ -205,15 +205,15 @@ def main():
                 speed=10.0
             )
 
-            t, i, sd = spso.run(max_iterations=max_iter)
+            t, i, sd,found = spso.run(max_iterations=max_iter)
+            if found:
+                times.append(t)
+                iters.append(i)
+                swarm_dists.append(sd)
 
-            times.append(t)
-            iters.append(i)
-            swarm_dists.append(sd)
-
-        avg_time.append(np.mean(times))
-        avg_iters.append(np.mean(iters))
-        avg_swarm_dist.append(np.mean(swarm_dists))
+        avg_time.append(np.mean(times) if times else float('nan'))
+        avg_iters.append(np.mean(iters) if iters else float('nan'))
+        avg_swarm_dist.append(np.mean(swarm_dists) if swarm_dists else float('nan'))
 
     # -----------------------------
     # Plot 1: Avg source seeking time

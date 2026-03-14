@@ -106,10 +106,11 @@ def compare_standard_vs_rl(
 				T=1.0,
 				speed=float(cfg.speed),
 			)
-			t, it_used, swarm_dist = spso.run(max_iterations=int(cfg.max_iter))
-			std_times_by_n[n_particles].append(float(t))
-			std_iters_by_n[n_particles].append(float(it_used))
-			std_swarm_dists_by_n[n_particles].append(float(swarm_dist))
+			t, it_used, swarm_dist, found = spso.run(max_iterations=int(cfg.max_iter))
+			if found:
+				std_times_by_n[n_particles].append(float(t))
+				std_iters_by_n[n_particles].append(float(it_used))
+				std_swarm_dists_by_n[n_particles].append(float(swarm_dist))
 
 			# --- RL-enhanced SPSO run ---
 			np.random.seed(ep_seed)
@@ -133,9 +134,10 @@ def compare_standard_vs_rl(
 			else:
 				time_to_find = swarm_distance / max(1e-9, float(cfg.speed))
 
-			rl_times_by_n[n_particles].append(float(time_to_find))
-			rl_iters_by_n[n_particles].append(float(env.current_iter))
-			rl_swarm_dists_by_n[n_particles].append(float(swarm_distance))
+			if found:
+				rl_times_by_n[n_particles].append(float(time_to_find))
+				rl_iters_by_n[n_particles].append(float(env.current_iter))
+				rl_swarm_dists_by_n[n_particles].append(float(swarm_distance))
 
 	def _mean_std(x: list[float]) -> tuple[float, float]:
 		if not x:

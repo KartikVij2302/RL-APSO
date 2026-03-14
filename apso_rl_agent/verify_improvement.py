@@ -309,7 +309,7 @@ if __name__ == "__main__":
     state_dim = 8
     action_dim = 4
     agent = PPOAgent(state_dim, action_dim, lr=0.0003)
-    model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_14.pth"
+    model_path = "apso_rl_agent/models/latest_ppo_apso_random_particles_12.pth"
 
     print(f"[Info] Using model from {model_path}")
     try:

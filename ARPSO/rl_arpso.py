@@ -61,14 +61,12 @@ class RLARPSOEnv:
         if obstacles is not None:
             self.obstacles = list(obstacles)
 
-        c3_init = 1.0 if len(self.obstacles) > 0 else 0.0
         self.arpso = ARPSO_SourceSeeker(
             bounds=self.bounds,
             source_pos=self.source_pos,
             num_particles=self.num_particles,
             c1=1.5,
             c2=1.5,
-            c3=c3_init,
             wi=0.7,
             T=1.0,
             obstacles=self.obstacles,
@@ -109,7 +107,6 @@ class RLARPSOEnv:
                 np.clip(self.current_iter / max(self.max_iter, 1), 0.0, 1.0),
                 np.clip(self.arpso.c1 / 4.0, 0.0, 2.0),
                 np.clip(self.arpso.c2 / 4.0, 0.0, 2.0),
-                np.clip(self.arpso.c3 / 4.0, 0.0, 2.0),
                 np.clip(avg_omega / 1.2, 0.0, 1.5),
                 time_left,
                 has_obstacles,
@@ -127,14 +124,12 @@ class RLARPSOEnv:
         delta = 0.25
         c1 = self.arpso.c1 * (1.0 + delta * a[0])
         c2 = self.arpso.c2 * (1.0 + delta * a[1])
-        c3 = self.arpso.c3 * (1.0 + delta * a[2]) if self.obstacles else 0.0
         wi = self.arpso.wi * (1.0 + 0.2 * a[3])
 
         c1 = float(np.clip(c1, 0.05, 3.5))
         c2 = float(np.clip(c2, 0.05, 3.5))
-        c3 = float(np.clip(c3, 0.0, 3.5))
         wi = float(np.clip(wi, 0.05, 1.2))
-        return c1, c2, c3, wi
+        return c1, c2, wi
 
     def _count_particles_inside_obstacles(self) -> int:
         assert self.arpso is not None
@@ -151,13 +146,13 @@ class RLARPSOEnv:
     def step(self, action: np.ndarray):
         assert self.arpso is not None
 
-        c1, c2, c3, wi = self._map_action_to_params(action)
+        c1, c2, wi = self._map_action_to_params(action)
         invalid_pen = 0.0
-        if not np.isfinite([c1, c2, c3, wi]).all():
-            c1, c2, c3, wi = 1.5, 1.5, (1.0 if self.obstacles else 0.0), 0.7
+        if not np.isfinite([c1, c2, wi]).all():
+            c1, c2, wi = 1.5, 1.5, 0.7
             invalid_pen = self.invalid_action_penalty
 
-        found, min_dist, step_time = self.arpso.step(c1=c1, c2=c2, c3=c3, wi=wi)
+        found, min_dist, step_time = self.arpso.step(c1=c1, c2=c2, wi=wi)
         collisions = self._count_particles_inside_obstacles()
         self.cumulative_time += step_time
 
@@ -212,7 +207,6 @@ class RLARPSOEnv:
             "cumulative_time": float(self.cumulative_time),
             "c1": c1,
             "c2": c2,
-            "c3": c3,
             "wi": wi,
             "collisions": collisions,
             "base_clock_penalty": float(base_clock_penalty),

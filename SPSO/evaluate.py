@@ -222,7 +222,7 @@ def run_rl_modified(cfg: EvalConfig, sources: np.ndarray, model_path: str, seed:
 
 
 def summarize(rows: List[Dict], method: str) -> Dict:
-	r = [x for x in rows if x["method"] == method]
+	r = [x for x in rows if x["method"] == method and x["success"] == 1]
 	Ts = np.array([x["Ts"] for x in r], dtype=float)
 	I = np.array([x["I"] for x in r], dtype=float)
 	success = np.array([x["success"] for x in r], dtype=int)
@@ -254,7 +254,7 @@ def parse_args() -> argparse.Namespace:
 	p.add_argument("--model-path", type=str, required=True, help="Path to trained RL-SPSO PPO model")
 	p.add_argument("--n-runs", type=int, default=100)
 	p.add_argument("--max-iter", type=int, default=300)
-	p.add_argument("--n-particles", type=int, default=10)
+	p.add_argument("--n-particles", type=int, default=5)
 	p.add_argument("--side-length", type=float, default=100.0)
 	p.add_argument("--seed", type=int, default=42)
 
@@ -262,7 +262,7 @@ def parse_args() -> argparse.Namespace:
 	p.add_argument("--random-source", action="store_true", help="Sample a random source per run uniformly in the grid")
 	p.add_argument("--deterministic", action="store_true", help="Use policy mean action (no sampling)")
 
-	p.add_argument("--out-csv", type=str, default="results/spso_vs_rlspso_eval_2.csv")
+	p.add_argument("--out-csv", type=str, default="results/spso_vs_rlspso_eval_3.csv")
 	return p.parse_args()
 
 
