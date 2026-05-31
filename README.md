@@ -1,3 +1,22 @@
+## Reward Function Hyperparameters
+
+The following hyperparameters are used in the reward function design and reward normalization process.
+
+| Category                       | Constant                         | Value |
+| ------------------------------ | -------------------------------- | ----: |
+| **Time / Iteration Penalties** | α (Time penalty)                 |  30.0 |
+|                                | β (Iteration penalty)            |  1.25 |
+|                                | γ (Shaping weight)               |   1.0 |
+| **Event-based Rewards**        | R<sub>f</sub> (Found bonus)      | 300.0 |
+|                                | R<sub>t</sub> (Timeout penalty)  | -20.0 |
+|                                | η (Invalidity penalty)           |  80.0 |
+| **Normalization**              | β<sub>r</sub> (Smoothing factor) | 0.999 |
+|                                | C (Clipping threshold)           | 200.0 |
+|                                | ε (Numerical stability)          |  1e-8 |
+
+**Table:** Hyperparameters used for reward computation and normalization in the proposed DRL framework.
+
+
 ## ARPSO Results
 
 The results for ARPSO can be found in the following figures:
