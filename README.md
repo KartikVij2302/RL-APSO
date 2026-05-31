@@ -25,3 +25,19 @@ The table below reports the average convergence time (lower is better) for diffe
 | RL-SPSO  |     42.35 |     33.23 |     42.38 |     40.73 |     35.57 |     40.80 |     39.59 |
 
 **Table:** Average convergence time under varying source speeds. Lower values indicate faster convergence.
+
+## Sensor Noise Analysis
+
+The table below reports the average convergence time (lower is better) under different measurement noise levels.
+
+| Method   |        0% |        5% |       10% |
+| -------- | --------: | --------: | --------: |
+| APSO     | **26.35** |     52.68 |     63.49 |
+| RL-APSO  |     27.52 | **49.87** | **59.00** |
+| ARPSO    |     45.51 |     75.72 |    106.74 |
+| RL-ARPSO |    113.01 |     91.78 |    115.08 |
+| SPSO     |     89.10 |    176.14 |     96.20 |
+| RL-SPSO  |     76.73 |     77.58 |     90.06 |
+
+**Table:** Average convergence time under different measurement noise levels. Lower values indicate faster convergence.
+
