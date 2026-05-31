@@ -1,3 +1,17 @@
+## Learned PSO Hyperparameters
+
+The table below summarizes the final hyperparameter values learned by the DRL agent for each RL-enhanced PSO variant.
+
+| Parameter | RL-APSO |        RL-ARPSO | RL-SPSO |
+| --------- | ------: | --------------: | ------: |
+| w₁        |  0.7801 |               — |       — |
+| w₂        | -0.1954 |               — |       — |
+| c₁        |  1.3788 |          0.0676 |    5.00 |
+| c₂        |  1.3788 |          3.5000 |    0.05 |
+| wᵢ        |       — | 0.0617 ± 0.0305 |       — |
+
+**Table:** Final hyperparameter values for the RL-enhanced APSO, ARPSO, and SPSO algorithms.
+
 ## Reward Function Hyperparameters
 
 The following hyperparameters are used in the reward function design and reward normalization process.
